@@ -1,0 +1,1 @@
+ALTER TABLE "content" ADD COLUMN "contentType" varchar(32) DEFAULT 'blog' NOT NULL;

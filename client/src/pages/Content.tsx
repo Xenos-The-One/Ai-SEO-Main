@@ -1,0 +1,580 @@
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, FileText, Loader2, Image as ImageIcon, Trash2, RefreshCw, CheckSquare } from "lucide-react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { Link } from "wouter";
+
+export default function Content() {
+  const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterClient, setFilterClient] = useState<string>("all");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  const [formData, setFormData] = useState({
+    clientId: "",
+    topic: "",
+    customPrompt: "",
+    contentType: "blog",
+    aiModel: "gemini-3.6-flash",
+    shouldGenerateImage: true,
+  });
+
+  const { data: contentList, isLoading, refetch } = trpc.content.list.useQuery();
+  const { data: clients } = trpc.clients.list.useQuery();
+  const { data: settings } = trpc.agencySettings.getAll.useQuery();
+  const generateMutation = trpc.content.generate.useMutation();
+
+  // Update default AI model when settings load
+  useEffect(() => {
+    if (settings?.default_ai_model && formData.aiModel === "gemini-3.6-flash") {
+      setFormData(prev => ({ ...prev, aiModel: settings.default_ai_model }));
+    }
+  }, [settings]);
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.clientId || !formData.topic) {
+      toast.error("Please select a client and enter a topic");
+      return;
+    }
+
+    try {
+      toast.info("Generating content... This may take a moment");
+      await generateMutation.mutateAsync({
+        clientId: parseInt(formData.clientId),
+        topic: formData.topic,
+        customPrompt: formData.customPrompt || undefined,
+        contentType: formData.contentType as "blog" | "newsletter" | "social" | "landing" | "email",
+        aiModel: formData.aiModel,
+        shouldGenerateImage: formData.shouldGenerateImage,
+      });
+      toast.success("Content generated successfully!");
+      setIsGenerateOpen(false);
+      setFormData({
+        clientId: "",
+        topic: "",
+        customPrompt: "",
+        contentType: "blog",
+        aiModel: "gemini-3.6-flash",
+        shouldGenerateImage: true,
+      });
+      refetch();
+    } catch (error) {
+      toast.error("Failed to generate content");
+    }
+  };
+
+  const filteredContent = contentList?.filter((item) => {
+    if (filterStatus !== "all" && item.content.status !== filterStatus) return false;
+    if (filterClient !== "all" && item.content.clientId.toString() !== filterClient) return false;
+    return true;
+  });
+
+  return (
+    <div className="p-8">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Content</h1>
+          <p className="text-muted-foreground mt-2">
+            AI-generated blog posts and articles
+          </p>
+        </div>
+        <Dialog open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Generate Content
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Generate New Content</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleGenerate} className="space-y-4">
+              <div>
+                <Label htmlFor="client">Client *</Label>
+                <Select
+                  value={formData.clientId}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, clientId: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients?.map((client) => (
+                      <SelectItem key={client.id} value={client.id.toString()}>
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="topic">Topic *</Label>
+                <Input
+                  id="topic"
+                  value={formData.topic}
+                  onChange={(e) =>
+                    setFormData({ ...formData, topic: e.target.value })
+                  }
+                  placeholder="e.g., The Future of AI in Marketing"
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="contentType">Content Type</Label>
+                <Select
+                  value={formData.contentType}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, contentType: value })
+                  }
+                >
+                  <SelectTrigger id="contentType">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="blog">Blog Post</SelectItem>
+                    <SelectItem value="newsletter">Newsletter</SelectItem>
+                    <SelectItem value="social">Social Media Post</SelectItem>
+                    <SelectItem value="landing">Landing Page Copy</SelectItem>
+                    <SelectItem value="email">Marketing Email</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="customPrompt">Custom Prompt (Optional)</Label>
+                <Textarea
+                  id="customPrompt"
+                  value={formData.customPrompt}
+                  onChange={(e) =>
+                    setFormData({ ...formData, customPrompt: e.target.value })
+                  }
+                  placeholder="Add specific instructions for the AI..."
+                  rows={3}
+                />
+              </div>
+              <div>
+                <Label htmlFor="aiModel">AI Model</Label>
+                <Select
+                  value={formData.aiModel}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, aiModel: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select AI model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gemini-3.6-flash">Gemini 3.6 Flash (Cost-Effective)</SelectItem>
+                    <SelectItem value="claude-opus-5">Claude Opus 5 (Highest Quality)</SelectItem>
+                    <SelectItem value="claude-sonnet-5">Claude Sonnet 5 (Balanced)</SelectItem>
+                    <SelectItem value="claude-haiku-4-5">Claude Haiku 4.5 (Fast)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Claude models excel at creative writing, GPT models are versatile, Gemini models are cost-effective
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="generateImage"
+                  checked={formData.shouldGenerateImage}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, shouldGenerateImage: checked as boolean })
+                  }
+                />
+                <Label htmlFor="generateImage" className="cursor-pointer">
+                  Generate featured image
+                </Label>
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={generateMutation.isPending}>
+                  {generateMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    "Generate"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsGenerateOpen(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Bulk Actions Bar */}
+      {selectedIds.length > 0 && (
+        <div className="mb-4 p-4 bg-primary/10 border border-primary/20 rounded-lg flex items-center justify-between">
+          <span className="text-sm font-medium">
+            {selectedIds.length} item{selectedIds.length > 1 ? "s" : ""} selected
+          </span>
+          <div className="flex gap-2">
+            <BulkStatusChange selectedIds={selectedIds} onSuccess={() => { setSelectedIds([]); refetch(); }} />
+            <BulkRegenerate selectedIds={selectedIds} onSuccess={() => { setSelectedIds([]); refetch(); }} />
+            <BulkDelete selectedIds={selectedIds} onSuccess={() => { setSelectedIds([]); refetch(); }} />
+            <Button variant="outline" size="sm" onClick={() => setSelectedIds([])}>
+              Clear Selection
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex gap-4 mb-6">
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filterClient} onValueChange={setFilterClient}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Filter by client" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Clients</SelectItem>
+            {clients?.map((client) => (
+              <SelectItem key={client.id} value={client.id.toString()}>
+                {client.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+          <p className="text-muted-foreground mt-4">Loading content...</p>
+        </div>
+      ) : filteredContent && filteredContent.length > 0 ? (
+        <div className="grid grid-cols-1 gap-6">
+          {filteredContent.map((item) => (
+            <Card key={item.content.id} className="hover:shadow-lg transition-shadow relative">
+              <div className="absolute top-4 left-4 z-10" onClick={(e) => e.stopPropagation()}>
+                <Checkbox
+                  checked={selectedIds.includes(item.content.id)}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      setSelectedIds([...selectedIds, item.content.id]);
+                    } else {
+                      setSelectedIds(selectedIds.filter(id => id !== item.content.id));
+                    }
+                  }}
+                />
+              </div>
+              <Link href={`/content/${item.content.id}`}>
+                <CardContent className="p-6">
+                  <div className="flex gap-6">
+                    {item.content.imageUrl ? (
+                      <img
+                        src={item.content.imageUrl}
+                        alt={item.content.title}
+                        className="w-48 h-32 object-cover rounded-lg"
+                      />
+                    ) : (
+                      <div className="w-48 h-32 bg-muted rounded-lg flex items-center justify-center">
+                        <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="text-xl font-semibold truncate">
+                          {item.content.title}
+                        </h3>
+                        <span
+                          className={`text-xs px-3 py-1 rounded-full whitespace-nowrap ml-4 ${
+                            item.content.status === "approved"
+                              ? "bg-green-100 text-green-700"
+                              : item.content.status === "in_progress"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          {item.content.status.replace("_", " ")}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Client: {item.client?.name || "Unknown"}
+                      </p>
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {item.content.topic}
+                      </p>
+                      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                        <span>Tokens: {item.content.totalTokens}</span>
+                        {item.content.webSearches > 0 && (
+                          <span>Research: {item.content.urlsFetched} URLs</span>
+                        )}
+                        <span>Progress: {item.content.progress}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Link>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No content yet</h3>
+            <p className="text-muted-foreground mb-4">
+              Generate your first AI-powered blog post
+            </p>
+            <Button onClick={() => setIsGenerateOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Generate Content
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// Bulk Delete Component
+function BulkDelete({ selectedIds, onSuccess }: { selectedIds: number[]; onSuccess: () => void }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+  const deleteMutation = trpc.content.delete.useMutation();
+
+  const handleBulkDelete = async () => {
+    try {
+      for (const id of selectedIds) {
+        await deleteMutation.mutateAsync({ id });
+      }
+      toast.success(`${selectedIds.length} item(s) deleted successfully`);
+      setShowConfirm(false);
+      onSuccess();
+    } catch {
+      toast.error("Failed to delete items");
+    }
+  };
+
+  return (
+    <>
+      <Button variant="destructive" size="sm" onClick={() => setShowConfirm(true)}>
+        <Trash2 className="h-4 w-4 mr-2" />
+        Delete
+      </Button>
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Confirm Bulk Delete</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Are you sure you want to delete {selectedIds.length} item(s)? This action cannot be undone.
+              </p>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setShowConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={handleBulkDelete} disabled={deleteMutation.isPending}>
+                  {deleteMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Delete
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Bulk Status Change Component
+function BulkStatusChange({ selectedIds, onSuccess }: { selectedIds: number[]; onSuccess: () => void }) {
+  const [showDialog, setShowDialog] = useState(false);
+  const [newStatus, setNewStatus] = useState<"draft" | "in_progress" | "approved">("draft");
+  const updateMutation = trpc.content.update.useMutation();
+
+  const handleBulkStatusChange = async () => {
+    try {
+      for (const id of selectedIds) {
+        await updateMutation.mutateAsync({ id, status: newStatus });
+      }
+      toast.success(`${selectedIds.length} item(s) status updated to ${newStatus}`);
+      setShowDialog(false);
+      onSuccess();
+    } catch {
+      toast.error("Failed to update status");
+    }
+  };
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setShowDialog(true)}>
+        <CheckSquare className="h-4 w-4 mr-2" />
+        Change Status
+      </Button>
+      {showDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Bulk Status Change</h3>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="bulk-status">New Status</Label>
+                  <Select value={newStatus} onValueChange={(val: any) => setNewStatus(val)}>
+                    <SelectTrigger id="bulk-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  This will update {selectedIds.length} item(s) to {newStatus} status.
+                </p>
+              </div>
+              <div className="flex gap-2 justify-end mt-6">
+                <Button variant="outline" onClick={() => setShowDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleBulkStatusChange} disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckSquare className="h-4 w-4 mr-2" />
+                  )}
+                  Update Status
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Bulk Regenerate Component
+function BulkRegenerate({ selectedIds, onSuccess }: { selectedIds: number[]; onSuccess: () => void }) {
+  const [showDialog, setShowDialog] = useState(false);
+  const [aiModel, setAiModel] = useState("gemini-3.6-flash");
+  const [shouldGenerateImage, setShouldGenerateImage] = useState(false);
+  const regenerateMutation = trpc.content.regenerate.useMutation();
+
+  const handleBulkRegenerate = async () => {
+    try {
+      toast.info(`Regenerating ${selectedIds.length} item(s)... This may take a while`);
+      for (const id of selectedIds) {
+        await regenerateMutation.mutateAsync({
+          id,
+          aiModel,
+          shouldGenerateImage,
+        });
+      }
+      toast.success(`${selectedIds.length} item(s) regenerated successfully`);
+      setShowDialog(false);
+      onSuccess();
+    } catch {
+      toast.error("Failed to regenerate items");
+    }
+  };
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setShowDialog(true)}>
+        <RefreshCw className="h-4 w-4 mr-2" />
+        Regenerate
+      </Button>
+      {showDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Bulk Regenerate</h3>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="bulk-model">AI Model</Label>
+                  <Select value={aiModel} onValueChange={setAiModel}>
+                    <SelectTrigger id="bulk-model">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gemini-3.6-flash">Gemini 3.6 Flash</SelectItem>
+                      <SelectItem value="claude-opus-5">Claude Opus 5</SelectItem>
+                      <SelectItem value="claude-sonnet-5">Claude Sonnet 5</SelectItem>
+                      <SelectItem value="claude-haiku-4-5">Claude Haiku 4.5</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="bulk-image"
+                    checked={shouldGenerateImage}
+                    onCheckedChange={(checked: boolean) => setShouldGenerateImage(checked)}
+                  />
+                  <Label htmlFor="bulk-image" className="cursor-pointer">
+                    Generate new images
+                  </Label>
+                </div>
+                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                  <p className="text-sm text-yellow-400">
+                    Warning: This will regenerate {selectedIds.length} item(s). This may take several minutes.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end mt-6">
+                <Button variant="outline" onClick={() => setShowDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleBulkRegenerate} disabled={regenerateMutation.isPending}>
+                  {regenerateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Regenerate
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
+  );
+}
