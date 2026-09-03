@@ -20,7 +20,14 @@ function authHeader(): string {
   return "Basic " + Buffer.from(`${login}:${password}`).toString("base64");
 }
 
-export async function dataForSeoPost<T = any>(path: string, tasks: unknown[]): Promise<T> {
+const DFS_TASK_CREATED = 20100; // async task_post returns this on success, not 20000
+
+export async function dataForSeoPost<T = any>(
+  path: string,
+  tasks: unknown[],
+  opts: { okTaskCodes?: number[] } = {}
+): Promise<T> {
+  const okTaskCodes = opts.okTaskCodes ?? [DFS_SUCCESS];
   const response = await fetch(`${BASE_URL}${path}`, {
     method: "POST",
     headers: {
@@ -42,7 +49,7 @@ export async function dataForSeoPost<T = any>(path: string, tasks: unknown[]): P
     throw new Error(`DataForSEO error ${json.status_code}: ${json.status_message ?? "unknown"}`);
   }
   const taskStatus = json?.tasks?.[0]?.status_code;
-  if (taskStatus && taskStatus !== DFS_SUCCESS) {
+  if (taskStatus && !okTaskCodes.includes(taskStatus)) {
     throw new Error(`DataForSEO task error ${taskStatus}: ${json?.tasks?.[0]?.status_message ?? "unknown"}`);
   }
   return json as T;
@@ -170,4 +177,239 @@ export async function domainIntersection(
       competitorRank: item?.second_domain_serp_element?.rank_absolute ?? null,
     }))
     .filter((k) => k.keyword);
+}
+
+export type RankResult = {
+  position: number | null; // rank_absolute in the live SERP, null if the domain isn't found
+  url: string | null; // the ranking URL, if found
+};
+
+export type RankOptions = {
+  locationName?: string;
+  languageName?: string;
+  device?: "desktop" | "mobile";
+};
+
+/**
+ * Check where `domain` ranks for `keyword` in a live Google SERP. Pulls one real-time
+ * SERP and returns the first organic result belonging to the domain (by `rank_absolute`),
+ * or { position: null } when the domain isn't present in the returned results.
+ */
+export async function checkKeywordRank(
+  keyword: string,
+  domain: string,
+  opts: RankOptions = {}
+): Promise<RankResult> {
+  const target = normalizeDomain(domain);
+  const json = await dataForSeoPost("/serp/google/organic/live/advanced", [
+    {
+      keyword,
+      location_name: opts.locationName ?? "United States",
+      language_name: opts.languageName ?? "English",
+      device: opts.device ?? "desktop",
+    },
+  ]);
+
+  const items: any[] = json?.tasks?.[0]?.result?.[0]?.items ?? [];
+  for (const item of items) {
+    if (item?.type !== "organic") continue;
+    const itemDomain = normalizeDomain(item?.domain ?? item?.url ?? "");
+    if (itemDomain === target) {
+      return {
+        position: item?.rank_absolute ?? null,
+        url: item?.url ?? null,
+      };
+    }
+  }
+  return { position: null, url: null };
+}
+
+// ---- Backlinks API ----
+
+export type BacklinkSummary = {
+  target: string;
+  backlinks: number;
+  referringDomains: number;
+  referringMainDomains: number;
+  rank: number; // 0-1000 domain rank
+  brokenBacklinks: number;
+  referringDomainsNofollow: number;
+  backlinksSpamScore: number; // 0-100 average spam score of the profile
+  raw: any;
+};
+
+/** Overall backlink profile for a domain. `/backlinks/summary/live`. */
+export async function backlinkSummary(target: string): Promise<BacklinkSummary> {
+  const domain = normalizeDomain(target);
+  const json = await dataForSeoPost("/backlinks/summary/live", [
+    { target: domain, internal_list_limit: 10, backlinks_status_type: "live" },
+  ]);
+  const r = json?.tasks?.[0]?.result?.[0] ?? {};
+  return {
+    target: domain,
+    backlinks: r?.backlinks ?? 0,
+    referringDomains: r?.referring_domains ?? 0,
+    referringMainDomains: r?.referring_main_domains ?? 0,
+    rank: r?.rank ?? 0,
+    brokenBacklinks: r?.broken_backlinks ?? 0,
+    referringDomainsNofollow: r?.referring_domains_nofollow ?? 0,
+    backlinksSpamScore: r?.backlinks_spam_score ?? 0,
+    raw: r,
+  };
+}
+
+export type ReferringDomain = {
+  domain: string;
+  backlinks: number;
+  rank: number;
+  brokenBacklinks: number;
+  spamScore: number;
+  firstSeen: string | null;
+  lostDate: string | null;
+};
+
+/** Referring domains for a target, richest first. `/backlinks/referring_domains/live`. */
+export async function referringDomains(target: string, limit = 100): Promise<ReferringDomain[]> {
+  const json = await dataForSeoPost("/backlinks/referring_domains/live", [
+    { target: normalizeDomain(target), limit, order_by: ["backlinks,desc"], backlinks_status_type: "live" },
+  ]);
+  const items: any[] = json?.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items
+    .map((i): ReferringDomain => ({
+      domain: i?.domain ?? "",
+      backlinks: i?.backlinks ?? 0,
+      rank: i?.rank ?? 0,
+      brokenBacklinks: i?.broken_backlinks ?? 0,
+      spamScore: i?.backlinks_spam_score ?? 0,
+      firstSeen: i?.first_seen ?? null,
+      lostDate: i?.lost_date ?? null,
+    }))
+    .filter((d) => d.domain);
+}
+
+export type BacklinkAnchor = {
+  anchor: string;
+  backlinks: number;
+  referringDomains: number;
+};
+
+/** Anchor-text distribution for a target. `/backlinks/anchors/live`. */
+export async function backlinkAnchors(target: string, limit = 100): Promise<BacklinkAnchor[]> {
+  const json = await dataForSeoPost("/backlinks/anchors/live", [
+    { target: normalizeDomain(target), limit, order_by: ["backlinks,desc"], backlinks_status_type: "live" },
+  ]);
+  const items: any[] = json?.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items
+    .map((i): BacklinkAnchor => ({
+      anchor: i?.anchor ?? "",
+      backlinks: i?.backlinks ?? 0,
+      referringDomains: i?.referring_domains ?? 0,
+    }))
+    .filter((a) => a.anchor);
+}
+
+export type LinkGapRow = {
+  referringDomain: string; // links to ≥1 competitor but not you — an outreach target
+  rank: number;
+  competitorsLinked: number; // how many of the competitors it links to
+  backlinks: number; // total backlinks it sends to the competitors
+};
+
+/**
+ * Competitor link gap: referring domains that link to `competitors` but NOT to `yourDomain`.
+ * `/backlinks/domain_intersection/live` with `exclude_targets = [yourDomain]`.
+ */
+export async function linkGap(
+  yourDomain: string,
+  competitors: string[],
+  limit = 100
+): Promise<LinkGapRow[]> {
+  const you = normalizeDomain(yourDomain);
+  const targets: Record<string, string> = {};
+  competitors
+    .map((c) => normalizeDomain(c))
+    .filter(Boolean)
+    .slice(0, 20)
+    .forEach((c, idx) => {
+      targets[String(idx + 1)] = c;
+    });
+
+  const json = await dataForSeoPost("/backlinks/domain_intersection/live", [
+    {
+      targets,
+      exclude_targets: [you],
+      limit,
+      order_by: ["1.rank,desc"],
+      backlinks_status_type: "live",
+    },
+  ]);
+
+  const items: any[] = json?.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items
+    .map((i): LinkGapRow => {
+      // Each item's `domain_intersection` is keyed by the target numbers ("1","2",…); every
+      // entry describes the SAME referring (linking) domain's links to that one competitor.
+      const perTarget = Object.values(i?.domain_intersection ?? {}) as any[];
+      const referringDomain = perTarget.find((t) => t?.target)?.target ?? "";
+      const rank = perTarget.find((t) => typeof t?.rank === "number")?.rank ?? 0;
+      const competitorsLinked = perTarget.filter((t) => (t?.backlinks ?? 0) > 0).length;
+      const backlinks = perTarget.reduce((sum, t) => sum + (t?.backlinks ?? 0), 0);
+      return { referringDomain, rank, competitorsLinked, backlinks };
+    })
+    .filter((r) => r.referringDomain);
+}
+
+export type ToxicLink = {
+  urlFrom: string;
+  sourceDomain: string;
+  anchor: string;
+  spamScore: number;
+  dofollow: boolean;
+};
+
+export type ToxicResult = {
+  links: ToxicLink[]; // only links at/above the threshold, worst first
+  toxicCount: number;
+  avgSpamScore: number;
+  disavowText: string; // Google disavow file: one `domain:<host>` per toxic source domain
+};
+
+/**
+ * Toxic backlink analysis: pulls backlinks (one per referring domain) and flags those whose
+ * `backlink_spam_score` meets `threshold`. `/backlinks/backlinks/live`.
+ */
+export async function toxicBacklinks(
+  target: string,
+  limit = 200,
+  threshold = 50
+): Promise<ToxicResult> {
+  const json = await dataForSeoPost("/backlinks/backlinks/live", [
+    {
+      target: normalizeDomain(target),
+      mode: "one_per_domain",
+      limit,
+      order_by: ["backlink_spam_score,desc"],
+      backlinks_status_type: "live",
+    },
+  ]);
+
+  const items: any[] = json?.tasks?.[0]?.result?.[0]?.items ?? [];
+  const all: ToxicLink[] = items
+    .map((i): ToxicLink => ({
+      urlFrom: i?.url_from ?? "",
+      sourceDomain: i?.domain_from ?? "",
+      anchor: i?.anchor ?? "",
+      spamScore: i?.backlink_spam_score ?? 0,
+      dofollow: i?.dofollow ?? false,
+    }))
+    .filter((l) => l.sourceDomain);
+
+  const links = all.filter((l) => l.spamScore >= threshold);
+  const avgSpamScore = all.length
+    ? Math.round(all.reduce((s, l) => s + l.spamScore, 0) / all.length)
+    : 0;
+  const domains = Array.from(new Set(links.map((l) => l.sourceDomain)));
+  const disavowText = domains.map((d) => `domain:${d}`).join("\n");
+
+  return { links, toxicCount: links.length, avgSpamScore, disavowText };
 }

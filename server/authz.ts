@@ -5,6 +5,7 @@ import {
   abTests,
   aiBrands,
   aiPrompts,
+  backlinkSnapshots,
   clientPortalUsers,
   clients,
   content,
@@ -16,6 +17,8 @@ import {
   designStandards,
   googleAnalyticsConnections,
   recurringPlans,
+  siteAudits,
+  trackedKeywords,
   webhookConfigs,
   wordpressConnections,
 } from "../drizzle/schema";
@@ -58,6 +61,9 @@ const OWNED_TABLES = {
   gaConnection: googleAnalyticsConnections,
   brand: aiBrands,
   aiPrompt: aiPrompts,
+  siteAudit: siteAudits,
+  trackedKeyword: trackedKeywords,
+  backlinkSnapshot: backlinkSnapshots,
 } as const;
 
 type OwnedKind = keyof typeof OWNED_TABLES;
@@ -89,6 +95,11 @@ export const assertGaConnection = (userId: number, id: number) =>
   assertOwned("gaConnection", id, userId);
 export const assertBrand = (userId: number, id: number) => assertOwned("brand", id, userId);
 export const assertAiPrompt = (userId: number, id: number) => assertOwned("aiPrompt", id, userId);
+export const assertSiteAudit = (userId: number, id: number) => assertOwned("siteAudit", id, userId);
+export const assertTrackedKeyword = (userId: number, id: number) =>
+  assertOwned("trackedKeyword", id, userId);
+export const assertBacklinkSnapshot = (userId: number, id: number) =>
+  assertOwned("backlinkSnapshot", id, userId);
 
 // --- Resources owned transitively through a parent ---
 

@@ -50,6 +50,9 @@ import { wordpressRouter } from "./routers/wordpress";
 import { designStandardsRouter } from "./routers/designStandards";
 import { bulkPublishingRouter } from "./routers/bulkPublishing";
 import { publishingAnalyticsRouter } from "./routers/publishingAnalytics";
+import { siteAuditRouter } from "./routers/siteAudit";
+import { rankTrackingRouter } from "./routers/rankTracking";
+import { backlinksRouter } from "./routers/backlinks";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -573,6 +576,9 @@ export const appRouter = router({
   briefs: briefsRouter,
   notifications: notificationsRouter,
   seoAudit: seoAuditRouter,
+  siteAudit: siteAuditRouter,
+  rankTracking: rankTrackingRouter,
+  backlinks: backlinksRouter,
   agencySettings: agencySettingsRouter,
   recurringPlans: recurringPlansRouter,
 

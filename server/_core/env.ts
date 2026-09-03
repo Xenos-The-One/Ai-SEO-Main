@@ -27,4 +27,8 @@ export const ENV = {
   newsletterFrom: process.env.NEWSLETTER_FROM ?? "onboarding@resend.dev",
   openaiApiKey: clean(process.env.OPENAI_API_KEY),
   perplexityApiKey: clean(process.env.PERPLEXITY_API_KEY),
+  // Run the weekly rank-tracking cron in this process. On by default in production;
+  // opt in during dev with ENABLE_SCHEDULER=1 so `tsx watch` restarts don't spam checks.
+  enableScheduler:
+    clean(process.env.ENABLE_SCHEDULER) === "1" || process.env.NODE_ENV === "production",
 };

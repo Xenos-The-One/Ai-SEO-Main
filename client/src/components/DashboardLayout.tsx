@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { LOGIN_PATH } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, FileText, BarChart3, Zap, Calendar, CalendarDays, Layers, MessageSquare, TrendingUp, Copy, GitBranch, Sparkles, Webhook, ClipboardList, Shield, Bell, Search, Settings, UserPlus, RefreshCw, FlaskConical, Target, CheckCircle, Palette, Activity, Swords, Gauge, Share2, Bot, ChevronDown } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, FileText, BarChart3, Zap, Calendar, CalendarDays, Layers, MessageSquare, TrendingUp, Copy, GitBranch, Sparkles, Webhook, ClipboardList, Shield, Bell, Search, Settings, UserPlus, RefreshCw, FlaskConical, Target, CheckCircle, Palette, Activity, Swords, Gauge, Share2, Bot, ChevronDown, ScanSearch, LineChart, Link2 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -58,8 +58,11 @@ const menuGroups = [
     title: "SEO & Research",
     items: [
       { icon: Target, label: "Keyword Research", path: "/keyword-research" },
+      { icon: LineChart, label: "Rank Tracking", path: "/rank-tracking" },
       { icon: Swords, label: "Competitor Analysis", path: "/competitors" },
-      { icon: Gauge, label: "Technical Audit", path: "/technical-audit" },
+      { icon: Link2, label: "Backlinks", path: "/backlinks" },
+      { icon: ScanSearch, label: "Site Audit", path: "/site-audit" },
+      { icon: Gauge, label: "Page Auditor", path: "/technical-audit" },
       { icon: Search, label: "Content Audit", path: "/seo-audit" },
       { icon: Bot, label: "AI Visibility", path: "/ai-visibility" },
     ],

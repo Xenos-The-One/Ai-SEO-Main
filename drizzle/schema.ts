@@ -617,3 +617,103 @@ export const aiVisibilityResults = pgTable("aiVisibilityResults", {
 
 export type AiVisibilityResult = typeof aiVisibilityResults.$inferSelect;
 export type InsertAiVisibilityResult = typeof aiVisibilityResults.$inferInsert;
+
+/**
+ * Full-site audits — one row per crawl of a client's domain via the DataForSEO
+ * On-Page API. The crawl is async: `run` posts a task and stores `status:"crawling"`
+ * with the DataForSEO `taskId`; `checkStatus` polls the summary and, once finished,
+ * fills the aggregates and populates `siteAuditPages`.
+ */
+export const siteAudits = pgTable("siteAudits", {
+  id: serial("id").primaryKey(),
+  clientId: integer("clientId").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  createdBy: integer("createdBy").notNull().references(() => users.id),
+  taskId: varchar("taskId", { length: 64 }).notNull(), // DataForSEO On-Page task id
+  target: varchar("target", { length: 255 }).notNull(), // crawled domain
+  status: text("status", { enum: ["crawling", "complete", "failed"] }).default("crawling").notNull(),
+  pagesCrawled: integer("pagesCrawled").default(0).notNull(),
+  onpageScore: numeric("onpageScore", { precision: 5, scale: 2 }),
+  criticalCount: integer("criticalCount").default(0).notNull(),
+  warningCount: integer("warningCount").default(0).notNull(),
+  checks: text("checks"), // JSON: site-wide check counts (broken links, duplicate titles, ...)
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()).notNull(),
+});
+
+export type SiteAudit = typeof siteAudits.$inferSelect;
+export type InsertSiteAudit = typeof siteAudits.$inferInsert;
+
+/**
+ * Per-page results for a site audit — one row per crawled URL.
+ */
+export const siteAuditPages = pgTable("siteAuditPages", {
+  id: serial("id").primaryKey(),
+  auditId: integer("auditId").notNull().references(() => siteAudits.id, { onDelete: "cascade" }),
+  url: text("url").notNull(),
+  statusCode: integer("statusCode"),
+  onpageScore: numeric("onpageScore", { precision: 5, scale: 2 }),
+  issues: text("issues"), // JSON array of per-page issues
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SiteAuditPage = typeof siteAuditPages.$inferSelect;
+export type InsertSiteAuditPage = typeof siteAuditPages.$inferInsert;
+
+/**
+ * Rank tracking — keywords tracked for a client's domain. Checked on demand
+ * (`rankTracking.runCheck`) and weekly by the scheduler.
+ */
+export const trackedKeywords = pgTable("trackedKeywords", {
+  id: serial("id").primaryKey(),
+  clientId: integer("clientId").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  createdBy: integer("createdBy").notNull().references(() => users.id),
+  keyword: varchar("keyword", { length: 255 }).notNull(),
+  locationName: varchar("locationName", { length: 255 }).default("United States").notNull(),
+  languageName: varchar("languageName", { length: 100 }).default("English").notNull(),
+  device: text("device", { enum: ["desktop", "mobile"] }).default("desktop").notNull(),
+  isActive: integer("isActive").default(1).notNull(), // 0/1
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TrackedKeyword = typeof trackedKeywords.$inferSelect;
+export type InsertTrackedKeyword = typeof trackedKeywords.$inferInsert;
+
+/**
+ * Rank snapshots — append-only SERP-position time series for a tracked keyword.
+ * `position` is null when the domain is not found in the top results.
+ */
+export const rankSnapshots = pgTable("rankSnapshots", {
+  id: serial("id").primaryKey(),
+  keywordId: integer("keywordId").notNull().references(() => trackedKeywords.id, { onDelete: "cascade" }),
+  position: integer("position"), // null = not ranked in the pulled SERP
+  url: text("url"), // the ranking URL, if found
+  checkedAt: timestamp("checkedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type RankSnapshot = typeof rankSnapshots.$inferSelect;
+export type InsertRankSnapshot = typeof rankSnapshots.$inferInsert;
+
+/**
+ * Backlink profile snapshots — one row per `backlinks.profile` run for a client's domain
+ * (DataForSEO Backlinks API). Aggregates live in columns; the full summary plus the top
+ * referring domains and anchors are kept as JSON for the detail tabs and trend.
+ */
+export const backlinkSnapshots = pgTable("backlinkSnapshots", {
+  id: serial("id").primaryKey(),
+  clientId: integer("clientId").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  createdBy: integer("createdBy").notNull().references(() => users.id),
+  target: varchar("target", { length: 255 }).notNull(),
+  backlinks: integer("backlinks").default(0).notNull(),
+  referringDomains: integer("referringDomains").default(0).notNull(),
+  referringMainDomains: integer("referringMainDomains").default(0).notNull(),
+  rank: integer("rank").default(0).notNull(), // DataForSEO domain rank 0-1000
+  brokenBacklinks: integer("brokenBacklinks").default(0).notNull(),
+  summary: text("summary"), // JSON: full summary metrics
+  topReferringDomains: text("topReferringDomains"), // JSON array
+  topAnchors: text("topAnchors"), // JSON array
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type BacklinkSnapshot = typeof backlinkSnapshots.$inferSelect;
+export type InsertBacklinkSnapshot = typeof backlinkSnapshots.$inferInsert;

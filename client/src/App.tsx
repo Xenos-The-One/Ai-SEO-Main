@@ -35,6 +35,9 @@ import ABTesting from "./pages/ABTesting";
 import Calendar from "./pages/Calendar";
 import KeywordResearch from "./pages/KeywordResearch";
 import Competitors from "./pages/Competitors";
+import SiteAudit from "./pages/SiteAudit";
+import RankTracking from "./pages/RankTracking";
+import Backlinks from "./pages/Backlinks";
 import Distribution from "./pages/Distribution";
 import AiVisibility from "./pages/AiVisibility";
 import Approvals from "./pages/Approvals";
@@ -81,6 +84,9 @@ function DashboardRouter() {
         <Route path="/calendar" component={Calendar} />
         <Route path="/keyword-research" component={KeywordResearch} />
         <Route path="/competitors" component={Competitors} />
+        <Route path="/site-audit" component={SiteAudit} />
+        <Route path="/rank-tracking" component={RankTracking} />
+        <Route path="/backlinks" component={Backlinks} />
         <Route path="/distribution" component={Distribution} />
         <Route path="/ai-visibility" component={AiVisibility} />
         <Route path="/approvals" component={Approvals} />
