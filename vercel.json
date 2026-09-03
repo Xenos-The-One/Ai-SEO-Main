@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "vite build && esbuild serverless/trpc.ts --bundle --platform=node --format=esm --packages=external --outfile=\"api/trpc/[[...path]].js\" && esbuild serverless/cron-rank-check.ts --bundle --platform=node --format=esm --packages=external --outfile=api/cron/rank-check.js",
+  "buildCommand": "pnpm build:vercel",
   "outputDirectory": "dist/public",
   "framework": null,
   "functions": {
