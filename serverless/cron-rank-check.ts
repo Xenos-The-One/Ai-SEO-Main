@@ -1,10 +1,10 @@
 /**
- * Vercel Cron endpoint — replaces the in-process node-cron weekly rank check (which can't
- * run on serverless). Scheduled in vercel.json ("0 6 * * 1"). Vercel Cron sends
- * `Authorization: Bearer <CRON_SECRET>` when a CRON_SECRET env var is set; we require it so
- * the endpoint can't be triggered by anyone.
+ * Source for the Vercel Cron function (weekly rank check). Bundled by the build step into
+ * `api/cron/rank-check.js`. Scheduled in vercel.json ("0 6 * * 1"). Vercel Cron sends
+ * `Authorization: Bearer <CRON_SECRET>` when CRON_SECRET is set; we require it so the
+ * endpoint can't be triggered by anyone.
  */
-import { runWeeklyRankCheck } from "../../server/_core/scheduler";
+import { runWeeklyRankCheck } from "../server/_core/scheduler";
 
 export default async function handler(req: any, res: any) {
   const secret = process.env.CRON_SECRET;
