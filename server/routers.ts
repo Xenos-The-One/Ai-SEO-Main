@@ -834,6 +834,37 @@ export const appRouter = router({
       return getPortalPerformance(ctx.portalUser.clientId);
     }),
 
+    contentFeedback: portalProcedure
+      .input(z.object({ contentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const { getPortalFeedback } = await import("./clientPortalData");
+        return getPortalFeedback(ctx.portalUser.clientId, input.contentId);
+      }),
+
+    addFeedback: portalProcedure
+      .input(z.object({ contentId: z.number(), note: z.string().min(1).max(5000) }))
+      .mutation(async ({ ctx, input }) => {
+        const { addPortalFeedback } = await import("./clientPortalData");
+        const row = await addPortalFeedback(
+          ctx.portalUser.clientId,
+          ctx.portalUser.userId,
+          ctx.portalUser.email,
+          input.contentId,
+          input.note
+        );
+        if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Content not found" });
+        return row;
+      }),
+
+    // Agency-side read of the notes clients left on a piece of content.
+    feedbackForContent: protectedProcedure
+      .input(z.object({ contentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await assertContent(ctx.user.id, input.contentId);
+        const { getFeedbackForContent } = await import("./clientPortalData");
+        return getFeedbackForContent(input.contentId);
+      }),
+
     // List portal users for a client
     listUsers: protectedProcedure
       .input(z.object({ clientId: z.number() }))

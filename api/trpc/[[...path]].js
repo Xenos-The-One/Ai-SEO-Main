@@ -82,6 +82,7 @@ __export(schema_exports, {
   designStandards: () => designStandards,
   googleAnalyticsConnections: () => googleAnalyticsConnections,
   portalBranding: () => portalBranding,
+  portalFeedback: () => portalFeedback,
   publishLogs: () => publishLogs,
   publishingSchedules: () => publishingSchedules,
   rankSnapshots: () => rankSnapshots,
@@ -95,7 +96,7 @@ __export(schema_exports, {
   wordpressPublishHistory: () => wordpressPublishHistory
 });
 import { integer, serial, pgTable, text, timestamp, varchar, numeric } from "drizzle-orm/pg-core";
-var users, clients, clientPortalUsers, portalBranding, content, contentTemplates, contentComments, contentRevisions, contentAnalytics, contentRepurposed, contentQualityScores, webhookConfigs, publishLogs, contentBriefs, agencySettings, recurringPlans, abTests, googleAnalyticsConnections, wordpressConnections, wordpressPublishHistory, designStandards, publishingSchedules, aiBrands, aiPrompts, aiVisibilityResults, siteAudits, siteAuditPages, trackedKeywords, rankSnapshots, backlinkSnapshots;
+var users, clients, clientPortalUsers, portalBranding, portalFeedback, content, contentTemplates, contentComments, contentRevisions, contentAnalytics, contentRepurposed, contentQualityScores, webhookConfigs, publishLogs, contentBriefs, agencySettings, recurringPlans, abTests, googleAnalyticsConnections, wordpressConnections, wordpressPublishHistory, designStandards, publishingSchedules, aiBrands, aiPrompts, aiVisibilityResults, siteAudits, siteAuditPages, trackedKeywords, rankSnapshots, backlinkSnapshots;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -187,6 +188,15 @@ var init_schema = __esm({
       welcomeMessage: text("welcomeMessage"),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => /* @__PURE__ */ new Date()).notNull()
+    });
+    portalFeedback = pgTable("portalFeedback", {
+      id: serial("id").primaryKey(),
+      contentId: integer("contentId").notNull().references(() => content.id, { onDelete: "cascade" }),
+      clientId: integer("clientId").notNull().references(() => clients.id, { onDelete: "cascade" }),
+      authorName: varchar("authorName", { length: 255 }),
+      authorEmail: varchar("authorEmail", { length: 320 }),
+      note: text("note").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
     });
     content = pgTable("content", {
       id: serial("id").primaryKey(),
@@ -3251,9 +3261,12 @@ var init_clientPortalAuth = __esm({
 // server/clientPortalData.ts
 var clientPortalData_exports = {};
 __export(clientPortalData_exports, {
+  addPortalFeedback: () => addPortalFeedback,
+  getFeedbackForContent: () => getFeedbackForContent,
   getPortalBranding: () => getPortalBranding2,
   getPortalContentById: () => getPortalContentById,
   getPortalContentList: () => getPortalContentList,
+  getPortalFeedback: () => getPortalFeedback,
   getPortalMe: () => getPortalMe,
   getPortalPerformance: () => getPortalPerformance,
   getPortalStats: () => getPortalStats,
@@ -3322,6 +3335,30 @@ async function portalRequestRevision(clientId, contentId) {
   if (!existing) return false;
   await d.update(content).set({ status: "in_progress", wasApproved: 0, approvedAt: null }).where(and16(eq20(content.id, contentId), eq20(content.clientId, clientId)));
   return true;
+}
+async function getPortalFeedback(clientId, contentId) {
+  const d = await db5();
+  const owned = await getPortalContentById(clientId, contentId);
+  if (!owned) return [];
+  return d.select().from(portalFeedback).where(and16(eq20(portalFeedback.contentId, contentId), eq20(portalFeedback.clientId, clientId))).orderBy(desc9(portalFeedback.createdAt));
+}
+async function getFeedbackForContent(contentId) {
+  const d = await db5();
+  return d.select().from(portalFeedback).where(eq20(portalFeedback.contentId, contentId)).orderBy(desc9(portalFeedback.createdAt));
+}
+async function addPortalFeedback(clientId, userId, email, contentId, note) {
+  const d = await db5();
+  const owned = await getPortalContentById(clientId, contentId);
+  if (!owned) return null;
+  let authorName = "Client";
+  if (userId > 0) {
+    const [u] = await d.select({ name: clientPortalUsers.name }).from(clientPortalUsers).where(eq20(clientPortalUsers.id, userId)).limit(1);
+    if (u?.name) authorName = u.name;
+  } else {
+    authorName = "Agency (preview)";
+  }
+  const [row] = await d.insert(portalFeedback).values({ contentId, clientId, authorName, authorEmail: email, note }).returning();
+  return row;
 }
 async function getPortalPerformance(clientId) {
   const d = await db5();
@@ -7390,6 +7427,28 @@ You can now publish this content to the client's CMS via the Publishing page.`
     performance: portalProcedure.query(async ({ ctx }) => {
       const { getPortalPerformance: getPortalPerformance2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalPerformance2(ctx.portalUser.clientId);
+    }),
+    contentFeedback: portalProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
+      const { getPortalFeedback: getPortalFeedback2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalFeedback2(ctx.portalUser.clientId, input.contentId);
+    }),
+    addFeedback: portalProcedure.input(z24.object({ contentId: z24.number(), note: z24.string().min(1).max(5e3) })).mutation(async ({ ctx, input }) => {
+      const { addPortalFeedback: addPortalFeedback2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      const row = await addPortalFeedback2(
+        ctx.portalUser.clientId,
+        ctx.portalUser.userId,
+        ctx.portalUser.email,
+        input.contentId,
+        input.note
+      );
+      if (!row) throw new TRPCError9({ code: "NOT_FOUND", message: "Content not found" });
+      return row;
+    }),
+    // Agency-side read of the notes clients left on a piece of content.
+    feedbackForContent: protectedProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
+      await assertContent(ctx.user.id, input.contentId);
+      const { getFeedbackForContent: getFeedbackForContent2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getFeedbackForContent2(input.contentId);
     }),
     // List portal users for a client
     listUsers: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {

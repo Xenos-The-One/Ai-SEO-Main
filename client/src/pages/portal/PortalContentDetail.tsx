@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, CheckCircle, XCircle, MessageSquare, Calendar, FileText } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Send } from "lucide-react";
 import { toast } from "sonner";
+import { Streamdown } from "streamdown";
 
 export default function PortalContentDetail() {
   const params = useParams<{ id: string }>();
@@ -16,6 +17,7 @@ export default function PortalContentDetail() {
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [showRevisionDialog, setShowRevisionDialog] = useState(false);
   const [comment, setComment] = useState("");
+  const [note, setNote] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("client_portal_token");
@@ -36,6 +38,24 @@ export default function PortalContentDetail() {
 
   const approveMutation = trpc.clientPortal.approve.useMutation();
   const requestRevisionMutation = trpc.clientPortal.requestRevision.useMutation();
+
+  const { data: feedback, refetch: refetchFeedback } = trpc.clientPortal.contentFeedback.useQuery(
+    { contentId },
+    { enabled: contentId > 0 && !!user }
+  );
+  const addFeedbackMutation = trpc.clientPortal.addFeedback.useMutation();
+
+  const handleAddNote = async () => {
+    if (!note.trim()) return;
+    try {
+      await addFeedbackMutation.mutateAsync({ contentId, note: note.trim() });
+      setNote("");
+      toast.success("Note sent");
+      refetchFeedback();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to send note");
+    }
+  };
 
   const handleApprove = async () => {
     try {
@@ -138,42 +158,89 @@ export default function PortalContentDetail() {
                 <CardTitle>Content Preview</CardTitle>
               </CardHeader>
               <CardContent>
-                <div 
-                  className="prose prose-invert max-w-none"
-                  dangerouslySetInnerHTML={{ __html: content.content || "<p>No content generated yet</p>" }}
-                />
+                {content.imageUrl && (
+                  <img
+                    src={content.imageUrl}
+                    alt={content.title}
+                    className="w-full h-72 object-cover rounded-lg mb-6"
+                  />
+                )}
+                {content.content ? (
+                  <div className="prose prose-sm prose-invert max-w-none">
+                    <Streamdown>{content.content}</Streamdown>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No content generated yet</p>
+                )}
               </CardContent>
             </Card>
+          </div>
 
-            {/* Approval Actions */}
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Actions */}
             {canApprove && user.role === "client_admin" && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Approval Actions</CardTitle>
+                  <CardTitle className="text-base">Actions</CardTitle>
                 </CardHeader>
-                <CardContent className="flex gap-3">
-                  <Button
-                    className="flex-1"
-                    onClick={() => setShowApprovalDialog(true)}
-                  >
+                <CardContent className="flex flex-col gap-3">
+                  <Button onClick={() => setShowApprovalDialog(true)}>
                     <CheckCircle className="h-4 w-4 mr-2" />
                     Approve Content
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setShowRevisionDialog(true)}
-                  >
+                  <Button variant="outline" onClick={() => setShowRevisionDialog(true)}>
                     <XCircle className="h-4 w-4 mr-2" />
                     Request Revision
                   </Button>
                 </CardContent>
               </Card>
             )}
-          </div>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
+            {/* Feedback & Notes */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Feedback &amp; Notes</CardTitle>
+                <p className="text-xs text-muted-foreground">Leave notes for our team about this content</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="Share a note, suggestion, or requested change…"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={4}
+                  />
+                  <Button
+                    className="w-full"
+                    onClick={handleAddNote}
+                    disabled={addFeedbackMutation.isPending || !note.trim()}
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    {addFeedbackMutation.isPending ? "Sending…" : "Send Note"}
+                  </Button>
+                </div>
+
+                <div className="space-y-3 max-h-80 overflow-y-auto">
+                  {!feedback || feedback.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">No notes yet</p>
+                  ) : (
+                    feedback.map((f: any) => (
+                      <div key={f.id} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium">{f.authorName || "Client"}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(f.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{f.note}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Metadata */}
             <Card>
               <CardHeader>
@@ -190,22 +257,14 @@ export default function PortalContentDetail() {
                     <p className="font-medium">{new Date(content.scheduledPublishDate).toLocaleDateString()}</p>
                   </div>
                 )}
-                {content.wordCount && (
+                {content.wordCount ? (
                   <div>
                     <p className="text-muted-foreground">Word Count</p>
                     <p className="font-medium">{content.wordCount} words</p>
                   </div>
-                )}
-                {content.aiModel && (
-                  <div>
-                    <p className="text-muted-foreground">AI Model</p>
-                    <p className="font-medium">{content.aiModel}</p>
-                  </div>
-                )}
+                ) : null}
               </CardContent>
             </Card>
-
-
           </div>
         </div>
       </main>

@@ -190,11 +190,6 @@ export default function PortalContent() {
                       <Badge className={getStatusColor(item.status)}>
                         {item.status.replace("_", " ")}
                       </Badge>
-                      {item.aiModel && (
-                        <span className="text-xs text-muted-foreground">
-                          {item.aiModel}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </Card>

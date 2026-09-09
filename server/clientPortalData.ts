@@ -9,9 +9,11 @@ import {
   aiBrands,
   aiPrompts,
   aiVisibilityResults,
+  clientPortalUsers,
   clients,
   content as contentTable,
   portalBranding,
+  portalFeedback,
   rankSnapshots,
   trackedKeywords,
 } from "../drizzle/schema";
@@ -117,6 +119,60 @@ export async function portalRequestRevision(clientId: number, contentId: number)
     .set({ status: "in_progress", wasApproved: 0, approvedAt: null })
     .where(and(eq(contentTable.id, contentId), eq(contentTable.clientId, clientId)));
   return true;
+}
+
+/** List a client's feedback notes on a piece of content (newest first). Scoped by clientId. */
+export async function getPortalFeedback(clientId: number, contentId: number) {
+  const d = await db();
+  const owned = await getPortalContentById(clientId, contentId);
+  if (!owned) return [];
+  return d
+    .select()
+    .from(portalFeedback)
+    .where(and(eq(portalFeedback.contentId, contentId), eq(portalFeedback.clientId, clientId)))
+    .orderBy(desc(portalFeedback.createdAt));
+}
+
+/** Agency-side read: all portal feedback for a piece of content (caller must own it). */
+export async function getFeedbackForContent(contentId: number) {
+  const d = await db();
+  return d
+    .select()
+    .from(portalFeedback)
+    .where(eq(portalFeedback.contentId, contentId))
+    .orderBy(desc(portalFeedback.createdAt));
+}
+
+/** Add a feedback note from a portal user. Scoped by clientId; returns null if not their content. */
+export async function addPortalFeedback(
+  clientId: number,
+  userId: number,
+  email: string,
+  contentId: number,
+  note: string
+) {
+  const d = await db();
+  const owned = await getPortalContentById(clientId, contentId);
+  if (!owned) return null;
+
+  // Resolve a display name from the portal user row when it's a real account.
+  let authorName = "Client";
+  if (userId > 0) {
+    const [u] = await d
+      .select({ name: clientPortalUsers.name })
+      .from(clientPortalUsers)
+      .where(eq(clientPortalUsers.id, userId))
+      .limit(1);
+    if (u?.name) authorName = u.name;
+  } else {
+    authorName = "Agency (preview)";
+  }
+
+  const [row] = await d
+    .insert(portalFeedback)
+    .values({ contentId, clientId, authorName, authorEmail: email, note })
+    .returning();
+  return row;
 }
 
 /**

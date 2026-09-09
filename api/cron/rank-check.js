@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { integer, serial, pgTable, text, timestamp, varchar, numeric } from "drizzle-orm/pg-core";
-var users, clients, clientPortalUsers, portalBranding, content, contentTemplates, contentComments, contentRevisions, contentAnalytics, contentRepurposed, contentQualityScores, webhookConfigs, publishLogs, contentBriefs, agencySettings, recurringPlans, abTests, googleAnalyticsConnections, wordpressConnections, wordpressPublishHistory, designStandards, publishingSchedules, aiBrands, aiPrompts, aiVisibilityResults, siteAudits, siteAuditPages, trackedKeywords, rankSnapshots, backlinkSnapshots;
+var users, clients, clientPortalUsers, portalBranding, portalFeedback, content, contentTemplates, contentComments, contentRevisions, contentAnalytics, contentRepurposed, contentQualityScores, webhookConfigs, publishLogs, contentBriefs, agencySettings, recurringPlans, abTests, googleAnalyticsConnections, wordpressConnections, wordpressPublishHistory, designStandards, publishingSchedules, aiBrands, aiPrompts, aiVisibilityResults, siteAudits, siteAuditPages, trackedKeywords, rankSnapshots, backlinkSnapshots;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -102,6 +102,15 @@ var init_schema = __esm({
       welcomeMessage: text("welcomeMessage"),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => /* @__PURE__ */ new Date()).notNull()
+    });
+    portalFeedback = pgTable("portalFeedback", {
+      id: serial("id").primaryKey(),
+      contentId: integer("contentId").notNull().references(() => content.id, { onDelete: "cascade" }),
+      clientId: integer("clientId").notNull().references(() => clients.id, { onDelete: "cascade" }),
+      authorName: varchar("authorName", { length: 255 }),
+      authorEmail: varchar("authorEmail", { length: 320 }),
+      note: text("note").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
     });
     content = pgTable("content", {
       id: serial("id").primaryKey(),

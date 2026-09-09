@@ -36,6 +36,10 @@ export default function ContentDetail() {
     { enabled: contentId > 0 }
   );
   const updateMutation = trpc.content.update.useMutation();
+  const { data: clientFeedback } = trpc.clientPortal.feedbackForContent.useQuery(
+    { contentId },
+    { enabled: contentId > 0 }
+  );
 
   const [title, setTitle] = useState("");
   const [contentText, setContentText] = useState("");
@@ -348,6 +352,31 @@ export default function ContentDetail() {
                   className="mt-2"
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Client Feedback</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!clientFeedback || clientFeedback.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No client notes yet</p>
+              ) : (
+                <div className="space-y-3 max-h-72 overflow-y-auto">
+                  {clientFeedback.map((f: any) => (
+                    <div key={f.id} className="rounded-lg border p-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium">{f.authorName || "Client"}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(f.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{f.note}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

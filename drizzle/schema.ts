@@ -122,6 +122,24 @@ export type PortalBranding = typeof portalBranding.$inferSelect;
 export type InsertPortalBranding = typeof portalBranding.$inferInsert;
 
 /**
+ * Portal Feedback table - notes left by client-portal users on a piece of content.
+ * Separate from `contentComments` (whose userId is an agency-user FK) because portal
+ * users are a distinct identity; author is stored denormalized (name/email from the token).
+ */
+export const portalFeedback = pgTable("portalFeedback", {
+  id: serial("id").primaryKey(),
+  contentId: integer("contentId").notNull().references(() => content.id, { onDelete: "cascade" }),
+  clientId: integer("clientId").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  authorName: varchar("authorName", { length: 255 }),
+  authorEmail: varchar("authorEmail", { length: 320 }),
+  note: text("note").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PortalFeedback = typeof portalFeedback.$inferSelect;
+export type InsertPortalFeedback = typeof portalFeedback.$inferInsert;
+
+/**
  * Content table - stores AI-generated blog posts and their metadata
  */
 export const content = pgTable("content", {
