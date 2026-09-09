@@ -18,10 +18,21 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
-  // Avoid redirect loop when already on the login page.
-  if (window.location.pathname === LOGIN_PATH) return;
+  // Portal pages have their own login and Bearer-token auth; keep them out of the agency flow.
+  const onPortal = window.location.pathname.startsWith("/portal");
+  const target = onPortal ? "/portal/login" : LOGIN_PATH;
 
-  window.location.href = LOGIN_PATH;
+  // Avoid redirect loop when already on the login page.
+  if (window.location.pathname === target) return;
+
+  if (onPortal) {
+    try {
+      localStorage.removeItem("client_portal_token");
+      localStorage.removeItem("client_portal_user");
+    } catch {}
+  }
+
+  window.location.href = target;
 };
 
 queryClient.getQueryCache().subscribe(event => {
@@ -46,8 +57,18 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       fetch(input, init) {
+        const headers = new Headers(init?.headers);
+        // On portal pages, authenticate with the client-portal Bearer token instead of the
+        // agency session cookie. Agency pages keep using the cookie (no token attached).
+        try {
+          if (window.location.pathname.startsWith("/portal")) {
+            const token = localStorage.getItem("client_portal_token");
+            if (token) headers.set("authorization", `Bearer ${token}`);
+          }
+        } catch {}
         return globalThis.fetch(input, {
           ...(init ?? {}),
+          headers,
           credentials: "include",
         });
       },

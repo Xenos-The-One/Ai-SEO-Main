@@ -28,6 +28,24 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
+const requirePortalUser = t.middleware(async opts => {
+  const { ctx, next } = opts;
+
+  if (!ctx.portalUser) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+
+  return next({
+    ctx: {
+      ...ctx,
+      portalUser: ctx.portalUser,
+    },
+  });
+});
+
+/** Authenticated as a client-portal user (Bearer token). Scoped to `ctx.portalUser.clientId`. */
+export const portalProcedure = t.procedure.use(requirePortalUser);
+
 /**
  * Rate-limit middleware factory for paid/expensive endpoints. Buckets are keyed by
  * `name` + the caller (user id when authenticated, else request IP), so all endpoints

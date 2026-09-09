@@ -4,16 +4,26 @@ import type { User } from "../../drizzle/schema";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 
+export type PortalUser = {
+  userId: number;
+  clientId: number;
+  email: string;
+  role: string;
+};
+
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
+  /** Set on every real request (null when no valid portal token); optional so tests may omit it. */
+  portalUser?: PortalUser | null;
 };
 
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
   let user: User | null = null;
+  let portalUser: PortalUser | null = null;
 
   try {
     const { user: authedUser, session } = await sdk.authenticateRequest(opts.req);
@@ -44,9 +54,28 @@ export async function createContext(
     user = null;
   }
 
+  // Client-portal auth is carried by a Bearer token (separate identity from the agency
+  // session cookie). Validate it independently so portal endpoints can scope to the client.
+  try {
+    const auth = opts.req.headers["authorization"];
+    if (auth && auth.startsWith("Bearer ")) {
+      const { verifyClientPortalToken } = await import("../clientPortalAuth");
+      const decoded = verifyClientPortalToken(auth.slice(7));
+      portalUser = {
+        userId: decoded.userId,
+        clientId: decoded.clientId,
+        email: decoded.email,
+        role: decoded.role,
+      };
+    }
+  } catch {
+    portalUser = null;
+  }
+
   return {
     req: opts.req,
     res: opts.res,
     user,
+    portalUser,
   };
 }

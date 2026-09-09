@@ -8,35 +8,22 @@ import { trpc } from "@/lib/trpc";
 export default function PortalDashboard() {
   const [, setLocation] = useLocation();
   const [user, setUser] = useState<any>(null);
-  const [branding, setBranding] = useState<any>(null);
 
   useEffect(() => {
     // Check if user is logged in
     const token = localStorage.getItem("client_portal_token");
     const userData = localStorage.getItem("client_portal_user");
-    
+
     if (!token || !userData) {
       setLocation("/portal/login");
       return;
     }
-    
-    const parsedUser = JSON.parse(userData);
-    setUser(parsedUser);
-    
-    // Fetch branding settings
-    if (parsedUser.clientId) {
-      fetch(`/api/trpc/portalBranding.get?input=${encodeURIComponent(JSON.stringify({ clientId: parsedUser.clientId }))}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.result?.data) {
-            setBranding(data.result.data);
-          }
-        })
-        .catch(() => {});
-    }
+
+    setUser(JSON.parse(userData));
   }, [setLocation]);
+
+  const { data: branding } = trpc.clientPortal.branding.useQuery(undefined, { enabled: !!user });
+  const { data: stats } = trpc.clientPortal.stats.useQuery(undefined, { enabled: !!user });
 
   const handleLogout = () => {
     localStorage.removeItem("client_portal_token");
@@ -89,7 +76,7 @@ export default function PortalDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Content</p>
-                <p className="text-3xl font-bold mt-2">0</p>
+                <p className="text-3xl font-bold mt-2">{stats?.totalContent ?? 0}</p>
               </div>
               <FileText className="h-12 w-12 text-blue-500" />
             </div>
@@ -99,7 +86,7 @@ export default function PortalDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Pending Approval</p>
-                <p className="text-3xl font-bold mt-2">0</p>
+                <p className="text-3xl font-bold mt-2">{stats?.pendingApproval ?? 0}</p>
               </div>
               <Calendar className="h-12 w-12 text-orange-500" />
             </div>
@@ -108,8 +95,8 @@ export default function PortalDashboard() {
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Views</p>
-                <p className="text-3xl font-bold mt-2">0</p>
+                <p className="text-sm font-medium text-muted-foreground">Approved</p>
+                <p className="text-3xl font-bold mt-2">{stats?.approved ?? 0}</p>
               </div>
               <TrendingUp className="h-12 w-12 text-green-500" />
             </div>
@@ -162,10 +149,29 @@ export default function PortalDashboard() {
         {/* Recent Activity */}
         <Card className="p-6 mt-8">
           <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
-          <div className="text-center py-12 text-muted-foreground">
-            <p>No recent activity</p>
-            <p className="text-sm mt-2">Activity will appear here as content is created and updated</p>
-          </div>
+          {!stats?.recent || stats.recent.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p>No recent activity</p>
+              <p className="text-sm mt-2">Activity will appear here as content is created and updated</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {stats.recent.map((item) => (
+                <Link key={item.id} href={`/portal/content/${item.id}`}>
+                  <div className="flex items-center justify-between py-3 cursor-pointer hover:opacity-80">
+                    <div className="flex items-center gap-3">
+                      <FileText className="h-5 w-5 text-muted-foreground" />
+                      <span className="font-medium">{item.title}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span className="capitalize">{item.status.replace("_", " ")}</span>
+                      <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </Card>
       </main>
     </div>

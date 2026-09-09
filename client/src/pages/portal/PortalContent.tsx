@@ -25,7 +25,7 @@ export default function PortalContent() {
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data: contentList, isLoading } = trpc.content.list.useQuery(
+  const { data: contentList, isLoading } = trpc.clientPortal.myContent.useQuery(
     undefined,
     { enabled: !!user }
   );
@@ -34,8 +34,7 @@ export default function PortalContent() {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
-  // Filter content by client
-  const clientContent = contentList?.filter((item: any) => item.clientId === user.clientId) || [];
+  const clientContent = contentList || [];
 
   // Apply search and status filters
   const filteredContent = clientContent.filter((item: any) => {

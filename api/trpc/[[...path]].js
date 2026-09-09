@@ -779,8 +779,8 @@ async function upsertUser(user) {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
   }
-  const db5 = await getDb();
-  if (!db5) {
+  const db6 = await getDb();
+  if (!db6) {
     console.warn("[Database] Cannot upsert user: database not available");
     return;
   }
@@ -815,7 +815,7 @@ async function upsertUser(user) {
     if (Object.keys(updateSet).length === 0) {
       updateSet.lastSignedIn = /* @__PURE__ */ new Date();
     }
-    await db5.insert(users).values(values).onConflictDoUpdate({
+    await db6.insert(users).values(values).onConflictDoUpdate({
       target: users.openId,
       set: updateSet
     });
@@ -825,104 +825,104 @@ async function upsertUser(user) {
   }
 }
 async function getUserByOpenId(openId) {
-  const db5 = await getDb();
-  if (!db5) {
+  const db6 = await getDb();
+  if (!db6) {
     console.warn("[Database] Cannot get user: database not available");
     return void 0;
   }
-  const result = await db5.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db6.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result.length > 0 ? result[0] : void 0;
 }
 async function getUserByEmail(email) {
-  const db5 = await getDb();
-  if (!db5) {
+  const db6 = await getDb();
+  if (!db6) {
     console.warn("[Database] Cannot get user: database not available");
     return void 0;
   }
-  const result = await db5.select().from(users).where(eq(users.email, email)).limit(1);
+  const result = await db6.select().from(users).where(eq(users.email, email)).limit(1);
   return result.length > 0 ? result[0] : void 0;
 }
 async function createUser(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(users).values(data).returning();
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(users).values(data).returning();
   return result[0];
 }
 async function incrementUserTokenVersion(userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [row] = await db5.update(users).set({ tokenVersion: sql`${users.tokenVersion} + 1` }).where(eq(users.id, userId)).returning({ tokenVersion: users.tokenVersion });
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [row] = await db6.update(users).set({ tokenVersion: sql`${users.tokenVersion} + 1` }).where(eq(users.id, userId)).returning({ tokenVersion: users.tokenVersion });
   return row.tokenVersion;
 }
 async function createClient(client) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
   const values = { ...client, websitePassword: encryptSecret(client.websitePassword) };
-  const result = await db5.insert(clients).values(values).returning({ id: clients.id });
+  const result = await db6.insert(clients).values(values).returning({ id: clients.id });
   return result[0].id;
 }
 async function getClientsByUser(userId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  const rows = await db5.select().from(clients).where(eq(clients.createdBy, userId));
+  const db6 = await getDb();
+  if (!db6) return [];
+  const rows = await db6.select().from(clients).where(eq(clients.createdBy, userId));
   return rows.map((row) => decryptClient(row));
 }
 async function getClientById(id) {
-  const db5 = await getDb();
-  if (!db5) return void 0;
-  const result = await db5.select().from(clients).where(eq(clients.id, id)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return void 0;
+  const result = await db6.select().from(clients).where(eq(clients.id, id)).limit(1);
   return decryptClient(result[0]);
 }
 async function updateClient(id, updates) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
   const values = { ...updates, updatedAt: /* @__PURE__ */ new Date() };
   if ("websitePassword" in updates) {
     values.websitePassword = encryptSecret(updates.websitePassword);
   }
-  await db5.update(clients).set(values).where(eq(clients.id, id));
+  await db6.update(clients).set(values).where(eq(clients.id, id));
 }
 async function deleteClient(id) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(clients).where(eq(clients.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(clients).where(eq(clients.id, id));
 }
 async function createContent(contentData) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(content).values(contentData).returning({ id: content.id });
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(content).values(contentData).returning({ id: content.id });
   return result[0].id;
 }
 async function getContentByUser(userId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(content).where(eq(content.createdBy, userId)).orderBy(content.createdAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(content).where(eq(content.createdBy, userId)).orderBy(content.createdAt);
 }
 async function getContentById(id) {
-  const db5 = await getDb();
-  if (!db5) return void 0;
-  const result = await db5.select().from(content).where(eq(content.id, id)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return void 0;
+  const result = await db6.select().from(content).where(eq(content.id, id)).limit(1);
   return result[0];
 }
 async function updateContent(id, updates) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(content).set({ ...updates, updatedAt: /* @__PURE__ */ new Date() }).where(eq(content.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(content).set({ ...updates, updatedAt: /* @__PURE__ */ new Date() }).where(eq(content.id, id));
 }
 async function deleteContent(id) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(content).where(eq(content.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(content).where(eq(content.id, id));
 }
 async function getContentByClient(clientId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(content).where(eq(content.clientId, clientId)).orderBy(content.createdAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(content).where(eq(content.clientId, clientId)).orderBy(content.createdAt);
 }
 async function getContentWithClient(userId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  const rows = await db5.select({
+  const db6 = await getDb();
+  if (!db6) return [];
+  const rows = await db6.select({
     content,
     client: clients
   }).from(content).leftJoin(clients, eq(content.clientId, clients.id)).where(eq(content.createdBy, userId)).orderBy(content.createdAt);
@@ -932,216 +932,216 @@ async function getContentWithClient(userId) {
   }));
 }
 async function createTemplate(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(contentTemplates).values(data);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(contentTemplates).values(data);
   return result[0];
 }
 async function getTemplatesByUser(userId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(contentTemplates).where(eq(contentTemplates.createdBy, userId)).orderBy(contentTemplates.createdAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(contentTemplates).where(eq(contentTemplates.createdBy, userId)).orderBy(contentTemplates.createdAt);
 }
 async function getPublicTemplates() {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(contentTemplates).where(eq(contentTemplates.isPublic, 1)).orderBy(contentTemplates.createdAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(contentTemplates).where(eq(contentTemplates.isPublic, 1)).orderBy(contentTemplates.createdAt);
 }
 async function getTemplateById(id) {
-  const db5 = await getDb();
-  if (!db5) return null;
-  const result = await db5.select().from(contentTemplates).where(eq(contentTemplates.id, id)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return null;
+  const result = await db6.select().from(contentTemplates).where(eq(contentTemplates.id, id)).limit(1);
   return result[0] || null;
 }
 async function updateTemplate(id, updates) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(contentTemplates).set(updates).where(eq(contentTemplates.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(contentTemplates).set(updates).where(eq(contentTemplates.id, id));
 }
 async function deleteTemplate(id) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(contentTemplates).where(eq(contentTemplates.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(contentTemplates).where(eq(contentTemplates.id, id));
 }
 async function addComment(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(contentComments).values(data);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(contentComments).values(data);
   return result[0];
 }
 async function getContentComments(contentId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(contentComments).where(eq(contentComments.contentId, contentId)).orderBy(contentComments.createdAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(contentComments).where(eq(contentComments.contentId, contentId)).orderBy(contentComments.createdAt);
 }
 async function updateCommentStatus(id, isResolved) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(contentComments).set({ isResolved }).where(eq(contentComments.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(contentComments).set({ isResolved }).where(eq(contentComments.id, id));
 }
 async function createRevision(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(contentRevisions).values(data);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(contentRevisions).values(data);
   return result[0];
 }
 async function getContentRevisions(contentId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(contentRevisions).where(eq(contentRevisions.contentId, contentId)).orderBy(contentRevisions.revisionNumber);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(contentRevisions).where(eq(contentRevisions.contentId, contentId)).orderBy(contentRevisions.revisionNumber);
 }
 async function recordAnalytics(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(contentAnalytics).values(data);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(contentAnalytics).values(data);
   return result[0];
 }
 async function getContentAnalytics(contentId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(contentAnalytics).where(eq(contentAnalytics.contentId, contentId)).orderBy(contentAnalytics.recordedAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(contentAnalytics).where(eq(contentAnalytics.contentId, contentId)).orderBy(contentAnalytics.recordedAt);
 }
 async function updateAnalytics(contentId, updates) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(contentAnalytics).set(updates).where(eq(contentAnalytics.contentId, contentId));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(contentAnalytics).set(updates).where(eq(contentAnalytics.contentId, contentId));
 }
 async function createRepurposedContent(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(contentRepurposed).values(data);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(contentRepurposed).values(data);
   return result[0];
 }
 async function getRepurposedContent(contentId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(contentRepurposed).where(eq(contentRepurposed.contentId, contentId)).orderBy(contentRepurposed.createdAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(contentRepurposed).where(eq(contentRepurposed.contentId, contentId)).orderBy(contentRepurposed.createdAt);
 }
 async function deleteRepurposedContent(id) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(contentRepurposed).where(eq(contentRepurposed.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(contentRepurposed).where(eq(contentRepurposed.id, id));
 }
 async function saveQualityScore(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(contentQualityScores).where(eq(contentQualityScores.contentId, data.contentId));
-  const result = await db5.insert(contentQualityScores).values(data);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(contentQualityScores).where(eq(contentQualityScores.contentId, data.contentId));
+  const result = await db6.insert(contentQualityScores).values(data);
   return result[0];
 }
 async function getQualityScore(contentId) {
-  const db5 = await getDb();
-  if (!db5) return null;
-  const results = await db5.select().from(contentQualityScores).where(eq(contentQualityScores.contentId, contentId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return null;
+  const results = await db6.select().from(contentQualityScores).where(eq(contentQualityScores.contentId, contentId)).limit(1);
   return results.length > 0 ? results[0] : null;
 }
 async function createWebhookConfig(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(webhookConfigs).values(data).returning({ id: webhookConfigs.id });
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(webhookConfigs).values(data).returning({ id: webhookConfigs.id });
   return result[0].id;
 }
 async function getWebhooksByClient(clientId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(webhookConfigs).where(eq(webhookConfigs.clientId, clientId));
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(webhookConfigs).where(eq(webhookConfigs.clientId, clientId));
 }
 async function getAllWebhooks(userId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(webhookConfigs).where(eq(webhookConfigs.createdBy, userId));
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(webhookConfigs).where(eq(webhookConfigs.createdBy, userId));
 }
 async function getWebhookById(id) {
-  const db5 = await getDb();
-  if (!db5) return null;
-  const result = await db5.select().from(webhookConfigs).where(eq(webhookConfigs.id, id)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return null;
+  const result = await db6.select().from(webhookConfigs).where(eq(webhookConfigs.id, id)).limit(1);
   return result[0] || null;
 }
 async function updateWebhookConfig(id, updates) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(webhookConfigs).set({ ...updates, updatedAt: /* @__PURE__ */ new Date() }).where(eq(webhookConfigs.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(webhookConfigs).set({ ...updates, updatedAt: /* @__PURE__ */ new Date() }).where(eq(webhookConfigs.id, id));
 }
 async function deleteWebhookConfig(id) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(webhookConfigs).where(eq(webhookConfigs.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(webhookConfigs).where(eq(webhookConfigs.id, id));
 }
 async function createPublishLog(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(publishLogs).values(data).returning({ id: publishLogs.id });
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(publishLogs).values(data).returning({ id: publishLogs.id });
   return result[0].id;
 }
 async function getPublishLogs(contentId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  return db5.select().from(publishLogs).where(eq(publishLogs.contentId, contentId)).orderBy(publishLogs.publishedAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  return db6.select().from(publishLogs).where(eq(publishLogs.contentId, contentId)).orderBy(publishLogs.publishedAt);
 }
 async function updatePublishLog(id, updates) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(publishLogs).set(updates).where(eq(publishLogs.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(publishLogs).set(updates).where(eq(publishLogs.id, id));
 }
 async function createContentBrief(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const result = await db5.insert(contentBriefs).values(data).returning({ id: contentBriefs.id });
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const result = await db6.insert(contentBriefs).values(data).returning({ id: contentBriefs.id });
   return result[0].id;
 }
 async function getContentBriefs(clientId) {
-  const db5 = await getDb();
-  if (!db5) return [];
+  const db6 = await getDb();
+  if (!db6) return [];
   if (clientId) {
-    return db5.select().from(contentBriefs).where(eq(contentBriefs.clientId, clientId)).orderBy(contentBriefs.createdAt);
+    return db6.select().from(contentBriefs).where(eq(contentBriefs.clientId, clientId)).orderBy(contentBriefs.createdAt);
   }
-  return db5.select().from(contentBriefs).orderBy(contentBriefs.createdAt);
+  return db6.select().from(contentBriefs).orderBy(contentBriefs.createdAt);
 }
 async function getContentBriefsForUser(userId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  const rows = await db5.select({ brief: contentBriefs }).from(contentBriefs).innerJoin(clients, eq(contentBriefs.clientId, clients.id)).where(eq(clients.createdBy, userId)).orderBy(contentBriefs.createdAt);
+  const db6 = await getDb();
+  if (!db6) return [];
+  const rows = await db6.select({ brief: contentBriefs }).from(contentBriefs).innerJoin(clients, eq(contentBriefs.clientId, clients.id)).where(eq(clients.createdBy, userId)).orderBy(contentBriefs.createdAt);
   return rows.map((r) => r.brief);
 }
 async function getContentBriefByToken(token) {
-  const db5 = await getDb();
-  if (!db5) return null;
-  const result = await db5.select().from(contentBriefs).where(eq(contentBriefs.shareToken, token)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return null;
+  const result = await db6.select().from(contentBriefs).where(eq(contentBriefs.shareToken, token)).limit(1);
   return result[0] || null;
 }
 async function getContentBriefById(id) {
-  const db5 = await getDb();
-  if (!db5) return null;
-  const result = await db5.select().from(contentBriefs).where(eq(contentBriefs.id, id)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return null;
+  const result = await db6.select().from(contentBriefs).where(eq(contentBriefs.id, id)).limit(1);
   return result[0] || null;
 }
 async function updateContentBrief(id, updates) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(contentBriefs).set({ ...updates, updatedAt: /* @__PURE__ */ new Date() }).where(eq(contentBriefs.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(contentBriefs).set({ ...updates, updatedAt: /* @__PURE__ */ new Date() }).where(eq(contentBriefs.id, id));
 }
 async function deleteContentBrief(id) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(contentBriefs).where(eq(contentBriefs.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(contentBriefs).where(eq(contentBriefs.id, id));
 }
 async function getPortalBranding(clientId) {
-  const db5 = await getDb();
-  if (!db5) return null;
+  const db6 = await getDb();
+  if (!db6) return null;
   const { portalBranding: portalBranding2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-  const result = await db5.select().from(portalBranding2).where(eq(portalBranding2.clientId, clientId)).limit(1);
+  const result = await db6.select().from(portalBranding2).where(eq(portalBranding2.clientId, clientId)).limit(1);
   return result[0] || null;
 }
 async function upsertPortalBranding(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
   const { portalBranding: portalBranding2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
   const existing = await getPortalBranding(data.clientId);
   if (existing) {
-    await db5.update(portalBranding2).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(portalBranding2.clientId, data.clientId));
+    await db6.update(portalBranding2).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(portalBranding2.clientId, data.clientId));
     return { ...existing, ...data };
   } else {
-    const result = await db5.insert(portalBranding2).values(data).returning({ id: portalBranding2.id });
+    const result = await db6.insert(portalBranding2).values(data).returning({ id: portalBranding2.id });
     return { id: result[0].id, ...data };
   }
 }
@@ -1469,11 +1469,11 @@ function calculateContentCost(aiModel, inputTokens, outputTokens) {
   return inputTokens / 1e6 * costs.input + outputTokens / 1e6 * costs.output;
 }
 async function getClientMonthlyCost(clientId) {
-  const db5 = await getDb();
-  if (!db5) return 0;
+  const db6 = await getDb();
+  if (!db6) return 0;
   const now = /* @__PURE__ */ new Date();
   const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const contentItems = await db5.select().from(content).where(
+  const contentItems = await db6.select().from(content).where(
     and2(
       eq3(content.clientId, clientId),
       gte(content.createdAt, firstDayOfMonth)
@@ -1490,11 +1490,11 @@ async function getClientMonthlyCost(clientId) {
   return totalCost;
 }
 async function getGlobalMonthlyCost() {
-  const db5 = await getDb();
-  if (!db5) return 0;
+  const db6 = await getDb();
+  if (!db6) return 0;
   const now = /* @__PURE__ */ new Date();
   const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const contentItems = await db5.select().from(content).where(gte(content.createdAt, firstDayOfMonth));
+  const contentItems = await db6.select().from(content).where(gte(content.createdAt, firstDayOfMonth));
   let totalCost = 0;
   for (const item of contentItems) {
     totalCost += calculateContentCost(
@@ -1506,11 +1506,11 @@ async function getGlobalMonthlyCost() {
   return totalCost;
 }
 async function checkClientBudgetAlert(clientId) {
-  const db5 = await getDb();
-  if (!db5) {
+  const db6 = await getDb();
+  if (!db6) {
     return { shouldAlert: false, currentCost: 0, budget: 0, percentage: 0, threshold: 80 };
   }
-  const [client] = await db5.select().from(clients).where(eq3(clients.id, clientId)).limit(1);
+  const [client] = await db6.select().from(clients).where(eq3(clients.id, clientId)).limit(1);
   if (!client || !client.monthlyBudget) {
     return { shouldAlert: false, currentCost: 0, budget: 0, percentage: 0, threshold: 80 };
   }
@@ -1527,9 +1527,9 @@ async function checkClientBudgetAlert(clientId) {
   };
 }
 async function assertClientWithinBudget(clientId) {
-  const db5 = await getDb();
-  if (!db5) return;
-  const [client] = await db5.select().from(clients).where(eq3(clients.id, clientId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return;
+  const [client] = await db6.select().from(clients).where(eq3(clients.id, clientId)).limit(1);
   if (!client || !client.monthlyBudget) return;
   const budget = parseFloat(client.monthlyBudget);
   if (!(budget > 0)) return;
@@ -1552,9 +1552,9 @@ Consider reviewing their content generation settings or adjusting their budget.`
   return await notifyOwner({ title, content: content2 });
 }
 async function checkAndAlertAfterGeneration(clientId) {
-  const db5 = await getDb();
-  if (!db5) return;
-  const [client] = await db5.select().from(clients).where(eq3(clients.id, clientId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) return;
+  const [client] = await db6.select().from(clients).where(eq3(clients.id, clientId)).limit(1);
   if (!client) return;
   const alertStatus = await checkClientBudgetAlert(clientId);
   if (alertStatus.shouldAlert) {
@@ -2678,9 +2678,9 @@ function calculateWordCount(text2) {
   return text2.trim().split(/\s+/).filter((word) => word.length > 0).length;
 }
 async function getModelPerformanceMetrics(userId) {
-  const db5 = await getDb();
-  if (!db5) return [];
-  const allContent = await db5.select().from(content).where(eq17(content.createdBy, userId));
+  const db6 = await getDb();
+  if (!db6) return [];
+  const allContent = await db6.select().from(content).where(eq17(content.createdBy, userId));
   const modelGroups = /* @__PURE__ */ new Map();
   for (const item of allContent) {
     const model = item.aiModel;
@@ -2851,11 +2851,11 @@ __export(performanceTracking_exports, {
 });
 import { eq as eq18, desc as desc8, and as and14, gte as gte5 } from "drizzle-orm";
 async function updatePerformanceMetrics(metrics) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const existing = await db5.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, metrics.contentId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const existing = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, metrics.contentId)).limit(1);
   if (existing.length > 0) {
-    await db5.update(contentAnalytics).set({
+    await db6.update(contentAnalytics).set({
       views: metrics.views,
       clicks: metrics.clicks,
       shares: existing[0].shares,
@@ -2863,7 +2863,7 @@ async function updatePerformanceMetrics(metrics) {
       recordedAt: /* @__PURE__ */ new Date()
     }).where(eq18(contentAnalytics.contentId, metrics.contentId));
   } else {
-    await db5.insert(contentAnalytics).values({
+    await db6.insert(contentAnalytics).values({
       contentId: metrics.contentId,
       views: metrics.views,
       clicks: metrics.clicks,
@@ -2877,9 +2877,9 @@ async function updatePerformanceMetrics(metrics) {
   return { success: true };
 }
 async function getContentPerformance(contentId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [analytics] = await db5.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [analytics] = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
   if (!analytics) {
     return {
       views: 0,
@@ -2893,9 +2893,9 @@ async function getContentPerformance(contentId) {
   return analytics;
 }
 async function getTopPerformingContent(limit = 10, userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const topContent = await db5.select({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const topContent = await db6.select({
     id: content.id,
     title: content.title,
     topic: content.topic,
@@ -2909,9 +2909,9 @@ async function getTopPerformingContent(limit = 10, userId) {
   return topContent;
 }
 async function getPerformanceSummary(userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const allAnalytics = await db5.select({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const allAnalytics = await db6.select({
     views: contentAnalytics.views,
     clicks: contentAnalytics.clicks,
     shares: contentAnalytics.shares,
@@ -2933,16 +2933,16 @@ async function getPerformanceSummary(userId) {
   };
 }
 async function trackContentView(contentId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [existing] = await db5.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [existing] = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
   if (existing) {
-    await db5.update(contentAnalytics).set({
+    await db6.update(contentAnalytics).set({
       views: (existing.views || 0) + 1,
       recordedAt: /* @__PURE__ */ new Date()
     }).where(eq18(contentAnalytics.contentId, contentId));
   } else {
-    await db5.insert(contentAnalytics).values({
+    await db6.insert(contentAnalytics).values({
       contentId,
       views: 1,
       clicks: 0,
@@ -2956,11 +2956,11 @@ async function trackContentView(contentId) {
   return { success: true };
 }
 async function trackContentClick(contentId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [existing] = await db5.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [existing] = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
   if (existing) {
-    await db5.update(contentAnalytics).set({
+    await db6.update(contentAnalytics).set({
       clicks: (existing.clicks || 0) + 1,
       recordedAt: /* @__PURE__ */ new Date()
     }).where(eq18(contentAnalytics.contentId, contentId));
@@ -2968,11 +2968,11 @@ async function trackContentClick(contentId) {
   return { success: true };
 }
 async function getPerformanceTrends(days = 30, userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
   const since = /* @__PURE__ */ new Date();
   since.setDate(since.getDate() - days);
-  const recentAnalytics = await db5.select({
+  const recentAnalytics = await db6.select({
     contentId: contentAnalytics.contentId,
     title: content.title,
     views: contentAnalytics.views,
@@ -2995,6 +2995,8 @@ __export(clientPortalAuth_exports, {
   acceptInvitation: () => acceptInvitation,
   changeClientPortalPassword: () => changeClientPortalPassword,
   createClientPortalInvitation: () => createClientPortalInvitation,
+  createDirectPortalUser: () => createDirectPortalUser,
+  createPortalImpersonationToken: () => createPortalImpersonationToken,
   deactivateClientPortalUser: () => deactivateClientPortalUser,
   generateInvitationToken: () => generateInvitationToken,
   getClientPortalUser: () => getClientPortalUser,
@@ -3034,9 +3036,9 @@ function generateInvitationToken() {
   return crypto2.randomBytes(32).toString("hex");
 }
 async function createClientPortalInvitation(clientId, email, name, role = "client_viewer") {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const existing = await db5.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const existing = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
   if (existing.length > 0) {
     throw new Error("User with this email already exists");
   }
@@ -3045,7 +3047,7 @@ async function createClientPortalInvitation(clientId, email, name, role = "clien
   expiry.setHours(expiry.getHours() + INVITATION_EXPIRY_HOURS);
   const tempPassword = crypto2.randomBytes(16).toString("hex");
   const passwordHash = await hashPassword(tempPassword);
-  const [result] = await db5.insert(clientPortalUsers).values({
+  const [result] = await db6.insert(clientPortalUsers).values({
     clientId,
     email,
     name,
@@ -3066,9 +3068,9 @@ async function createClientPortalInvitation(clientId, email, name, role = "clien
   };
 }
 async function acceptInvitation(token, newPassword) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [user] = await db5.select().from(clientPortalUsers).where(eq19(clientPortalUsers.invitationToken, token)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [user] = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.invitationToken, token)).limit(1);
   if (!user) {
     throw new Error("Invalid invitation token");
   }
@@ -3076,7 +3078,7 @@ async function acceptInvitation(token, newPassword) {
     throw new Error("Invitation has expired");
   }
   const passwordHash = await hashPassword(newPassword);
-  await db5.update(clientPortalUsers).set({
+  await db6.update(clientPortalUsers).set({
     passwordHash,
     isActive: 1,
     invitationToken: null,
@@ -3085,10 +3087,53 @@ async function acceptInvitation(token, newPassword) {
   }).where(eq19(clientPortalUsers.id, user.id));
   return { success: true, userId: user.id };
 }
+async function createDirectPortalUser(clientId, email, name, password, role = "client_admin") {
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const existing = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
+  if (existing.length > 0) {
+    throw new Error("A portal user with this email already exists");
+  }
+  const passwordHash = await hashPassword(password);
+  const [result] = await db6.insert(clientPortalUsers).values({
+    clientId,
+    email,
+    name,
+    role,
+    passwordHash,
+    isActive: 1,
+    createdAt: /* @__PURE__ */ new Date(),
+    updatedAt: /* @__PURE__ */ new Date()
+  }).returning({ id: clientPortalUsers.id });
+  return { id: result.id, email, name, role };
+}
+function createPortalImpersonationToken(clientId, clientName) {
+  const token = jwt.sign(
+    {
+      userId: 0,
+      clientId,
+      email: "owner-preview@portal",
+      role: "client_admin",
+      type: "client_portal"
+    },
+    getJwtSecret(),
+    { expiresIn: "1d" }
+  );
+  return {
+    token,
+    user: {
+      id: 0,
+      clientId,
+      email: "owner-preview@portal",
+      name: `${clientName} (preview)`,
+      role: "client_admin"
+    }
+  };
+}
 async function loginClientPortalUser(email, password) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [user] = await db5.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [user] = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
   if (!user) {
     throw new Error("Invalid email or password");
   }
@@ -3100,9 +3145,9 @@ async function loginClientPortalUser(email, password) {
   }
   if (!isBcryptHash(user.passwordHash)) {
     const upgraded = await hashPassword(password);
-    await db5.update(clientPortalUsers).set({ passwordHash: upgraded }).where(eq19(clientPortalUsers.id, user.id));
+    await db6.update(clientPortalUsers).set({ passwordHash: upgraded }).where(eq19(clientPortalUsers.id, user.id));
   }
-  await db5.update(clientPortalUsers).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where(eq19(clientPortalUsers.id, user.id));
+  await db6.update(clientPortalUsers).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where(eq19(clientPortalUsers.id, user.id));
   const token = jwt.sign(
     {
       userId: user.id,
@@ -3137,9 +3182,9 @@ function verifyClientPortalToken(token) {
   }
 }
 async function getClientPortalUser(userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [user] = await db5.select({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [user] = await db6.select({
     id: clientPortalUsers.id,
     clientId: clientPortalUsers.clientId,
     email: clientPortalUsers.email,
@@ -3153,9 +3198,9 @@ async function getClientPortalUser(userId) {
   return user;
 }
 async function listClientPortalUsers(clientId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const users2 = await db5.select({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const users2 = await db6.select({
     id: clientPortalUsers.id,
     email: clientPortalUsers.email,
     name: clientPortalUsers.name,
@@ -3167,9 +3212,9 @@ async function listClientPortalUsers(clientId) {
   return users2;
 }
 async function changeClientPortalPassword(userId, oldPassword, newPassword) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [user] = await db5.select().from(clientPortalUsers).where(eq19(clientPortalUsers.id, userId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [user] = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.id, userId)).limit(1);
   if (!user) {
     throw new Error("User not found");
   }
@@ -3177,16 +3222,16 @@ async function changeClientPortalPassword(userId, oldPassword, newPassword) {
     throw new Error("Current password is incorrect");
   }
   const newPasswordHash = await hashPassword(newPassword);
-  await db5.update(clientPortalUsers).set({
+  await db6.update(clientPortalUsers).set({
     passwordHash: newPasswordHash,
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq19(clientPortalUsers.id, userId));
   return { success: true };
 }
 async function deactivateClientPortalUser(userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(clientPortalUsers).set({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(clientPortalUsers).set({
     isActive: 0,
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq19(clientPortalUsers.id, userId));
@@ -3203,6 +3248,257 @@ var init_clientPortalAuth = __esm({
   }
 });
 
+// server/clientPortalData.ts
+var clientPortalData_exports = {};
+__export(clientPortalData_exports, {
+  getPortalBranding: () => getPortalBranding2,
+  getPortalContentById: () => getPortalContentById,
+  getPortalContentList: () => getPortalContentList,
+  getPortalMe: () => getPortalMe,
+  getPortalPerformance: () => getPortalPerformance,
+  getPortalStats: () => getPortalStats,
+  portalApproveContent: () => portalApproveContent,
+  portalRequestRevision: () => portalRequestRevision,
+  providerLabel: () => providerLabel
+});
+import { and as and16, asc as asc3, desc as desc9, eq as eq20, inArray as inArray3 } from "drizzle-orm";
+async function db5() {
+  const d = await getDb();
+  if (!d) throw new Error("Database not available");
+  return d;
+}
+function providerLabel(provider) {
+  return PROVIDER_LABELS[provider] ?? provider;
+}
+async function getPortalMe(clientId, role, email) {
+  const d = await db5();
+  const [client] = await d.select({ id: clients.id, name: clients.name, company: clients.company }).from(clients).where(eq20(clients.id, clientId)).limit(1);
+  return {
+    clientId,
+    role,
+    email,
+    clientName: client?.name ?? "",
+    clientCompany: client?.company ?? ""
+  };
+}
+async function getPortalBranding2(clientId) {
+  const d = await db5();
+  const [row] = await d.select().from(portalBranding).where(eq20(portalBranding.clientId, clientId)).limit(1);
+  return row ?? null;
+}
+async function getPortalContentList(clientId) {
+  const d = await db5();
+  return d.select().from(content).where(eq20(content.clientId, clientId)).orderBy(desc9(content.createdAt));
+}
+async function getPortalContentById(clientId, id) {
+  const d = await db5();
+  const [row] = await d.select().from(content).where(and16(eq20(content.id, id), eq20(content.clientId, clientId))).limit(1);
+  return row ?? null;
+}
+async function getPortalStats(clientId) {
+  const rows = await getPortalContentList(clientId);
+  return {
+    totalContent: rows.length,
+    pendingApproval: rows.filter((r) => r.status !== "approved").length,
+    approved: rows.filter((r) => r.status === "approved").length,
+    recent: rows.slice(0, 5).map((r) => ({
+      id: r.id,
+      title: r.title,
+      status: r.status,
+      createdAt: r.createdAt
+    }))
+  };
+}
+async function portalApproveContent(clientId, contentId) {
+  const d = await db5();
+  const existing = await getPortalContentById(clientId, contentId);
+  if (!existing) return false;
+  await d.update(content).set({ status: "approved", wasApproved: 1, approvedAt: /* @__PURE__ */ new Date(), progress: 100 }).where(and16(eq20(content.id, contentId), eq20(content.clientId, clientId)));
+  return true;
+}
+async function portalRequestRevision(clientId, contentId) {
+  const d = await db5();
+  const existing = await getPortalContentById(clientId, contentId);
+  if (!existing) return false;
+  await d.update(content).set({ status: "in_progress", wasApproved: 0, approvedAt: null }).where(and16(eq20(content.id, contentId), eq20(content.clientId, clientId)));
+  return true;
+}
+async function getPortalPerformance(clientId) {
+  const d = await db5();
+  const [client] = await d.select().from(clients).where(eq20(clients.id, clientId)).limit(1);
+  if (!client) throw new Error("Client not found");
+  const onboardedAt = client.createdAt;
+  const monthsActive = Math.max(
+    0,
+    Math.round((Date.now() - new Date(onboardedAt).getTime()) / (30 * 24 * 60 * 60 * 1e3))
+  );
+  const locationParts = [client.city, client.state].filter(Boolean);
+  const profile = {
+    name: client.businessName || client.name,
+    location: locationParts.join(", "),
+    industry: client.industry || client.businessType || "",
+    onboardedAt,
+    monthsActive
+  };
+  const domainSource = client.websiteUrl || client.businessWebsite || "";
+  const clientDomain2 = domainSource ? normalizeDomain(domainSource) : "";
+  let brandId = null;
+  if (clientDomain2) {
+    const brands = await d.select({ id: aiBrands.id, domain: aiBrands.domain }).from(aiBrands).where(eq20(aiBrands.createdBy, client.createdBy));
+    const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain2);
+    brandId = match?.id ?? null;
+  }
+  let aiVisibility = emptyAiVisibility();
+  if (brandId != null) {
+    aiVisibility = await buildAiVisibility(brandId);
+  }
+  const keywords = await buildKeywordRankings(clientId);
+  return {
+    profile,
+    hasAiData: aiVisibility.hasAiData,
+    hasKeywordData: keywords.length > 0,
+    visibilityScore: aiVisibility.visibilityScore,
+    bestRank: aiVisibility.bestRank,
+    topEngine: aiVisibility.topEngine,
+    citationStatus: aiVisibility.hasAiData ? "verified" : "none",
+    engines: aiVisibility.engines,
+    rankProgression: aiVisibility.rankProgression,
+    startVsCurrent: aiVisibility.startVsCurrent,
+    citations: aiVisibility.citations,
+    keywords
+  };
+}
+function emptyAiVisibility() {
+  return {
+    hasAiData: false,
+    visibilityScore: null,
+    bestRank: null,
+    topEngine: null,
+    engines: [],
+    rankProgression: [],
+    startVsCurrent: [],
+    citations: []
+  };
+}
+async function buildAiVisibility(brandId) {
+  const d = await db5();
+  const rows = await d.select({
+    scanId: aiVisibilityResults.scanId,
+    provider: aiVisibilityResults.provider,
+    mentioned: aiVisibilityResults.mentioned,
+    position: aiVisibilityResults.position,
+    sentiment: aiVisibilityResults.sentiment,
+    summary: aiVisibilityResults.summary,
+    answerExcerpt: aiVisibilityResults.answerExcerpt,
+    prompt: aiPrompts.prompt,
+    createdAt: aiVisibilityResults.createdAt
+  }).from(aiVisibilityResults).leftJoin(aiPrompts, eq20(aiVisibilityResults.promptId, aiPrompts.id)).where(eq20(aiVisibilityResults.brandId, brandId)).orderBy(asc3(aiVisibilityResults.createdAt));
+  if (rows.length === 0) return emptyAiVisibility();
+  const scanOrder = [];
+  for (const r of rows) if (!scanOrder.includes(r.scanId)) scanOrder.push(r.scanId);
+  const firstScan = scanOrder[0];
+  const lastScan = scanOrder[scanOrder.length - 1];
+  const providers = Array.from(new Set(rows.map((r) => r.provider)));
+  const bestRankIn = (scanId, provider) => {
+    const positions = rows.filter((r) => r.scanId === scanId && r.provider === provider && r.position != null).map((r) => r.position);
+    return positions.length ? Math.min(...positions) : null;
+  };
+  const engines = providers.map((provider) => {
+    const currentRank = bestRankIn(lastScan, provider);
+    const startRank = bestRankIn(firstScan, provider);
+    const delta = currentRank != null && startRank != null ? startRank - currentRank : null;
+    let status = "Holding";
+    if (delta != null && delta > 0) status = `\u2191 ${delta} position${delta > 1 ? "s" : ""}`;
+    else if (delta != null && delta < 0) status = `\u2193 ${Math.abs(delta)}`;
+    return { provider, label: providerLabel(provider), currentRank, startRank, delta, status };
+  });
+  const latestRows = rows.filter((r) => r.scanId === lastScan);
+  const mentioned = latestRows.filter((r) => r.mentioned).length;
+  const visibilityScore = latestRows.length ? Math.round(mentioned / latestRows.length * 100) : 0;
+  const rankedEngines = engines.filter((e) => e.currentRank != null);
+  const bestRank = rankedEngines.length ? Math.min(...rankedEngines.map((e) => e.currentRank)) : null;
+  const topEngine = rankedEngines.length ? rankedEngines.reduce(
+    (a, b) => a.currentRank <= b.currentRank ? a : b
+  ).label : null;
+  const rankProgression = scanOrder.map((scanId, i) => {
+    const row = { label: `M${i + 1}` };
+    for (const p of providers) row[p] = bestRankIn(scanId, p);
+    return row;
+  });
+  const startVsCurrent = engines.map((e) => ({
+    provider: e.provider,
+    label: e.label,
+    start: e.startRank,
+    current: e.currentRank
+  }));
+  const citations = [];
+  for (const provider of providers) {
+    const best = latestRows.filter((r) => r.provider === provider && r.mentioned).sort((a, b) => (a.position ?? 999) - (b.position ?? 999))[0];
+    if (best) {
+      citations.push({
+        provider,
+        label: providerLabel(provider),
+        prompt: best.prompt ?? "",
+        excerpt: best.summary || best.answerExcerpt || "",
+        position: best.position,
+        mentioned: true
+      });
+    }
+  }
+  return {
+    hasAiData: true,
+    visibilityScore,
+    bestRank,
+    topEngine,
+    engines,
+    rankProgression,
+    startVsCurrent,
+    citations
+  };
+}
+async function buildKeywordRankings(clientId) {
+  const d = await db5();
+  const keywords = await d.select().from(trackedKeywords).where(and16(eq20(trackedKeywords.clientId, clientId), eq20(trackedKeywords.isActive, 1)));
+  if (keywords.length === 0) return [];
+  const ids = keywords.map((k) => k.id);
+  const snaps = await d.select().from(rankSnapshots).where(inArray3(rankSnapshots.keywordId, ids)).orderBy(desc9(rankSnapshots.checkedAt));
+  return keywords.map((k) => {
+    const history = snaps.filter((s) => s.keywordId === k.id);
+    const current = history[0]?.position ?? null;
+    const prev = history[1]?.position ?? null;
+    let status = "New";
+    if (prev != null && current != null) {
+      if (current < prev) status = "Rising";
+      else if (current > prev) status = "Falling";
+      else status = "Stable";
+    } else if (current != null && prev == null && history.length > 1) {
+      status = "Stable";
+    }
+    return {
+      keyword: k.keyword,
+      location: k.locationName,
+      position: current,
+      prev,
+      status
+    };
+  });
+}
+var PROVIDER_LABELS;
+var init_clientPortalData = __esm({
+  "server/clientPortalData.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_dataforseo();
+    PROVIDER_LABELS = {
+      openai: "ChatGPT",
+      claude: "Claude",
+      gemini: "Google Gemini",
+      perplexity: "Perplexity"
+    };
+  }
+});
+
 // server/approvalWorkflow.ts
 var approvalWorkflow_exports = {};
 __export(approvalWorkflow_exports, {
@@ -3215,12 +3511,12 @@ __export(approvalWorkflow_exports, {
   requestApproval: () => requestApproval,
   requestRevision: () => requestRevision
 });
-import { eq as eq20, and as and16, desc as desc9 } from "drizzle-orm";
+import { eq as eq21, and as and17, desc as desc10 } from "drizzle-orm";
 async function requestApproval(contentId, requestedBy) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(content).set({ status: "in_progress", updatedAt: /* @__PURE__ */ new Date() }).where(eq20(content.id, contentId));
-  const [contentData] = await db5.select().from(content).where(eq20(content.id, contentId)).limit(1);
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(content).set({ status: "in_progress", updatedAt: /* @__PURE__ */ new Date() }).where(eq21(content.id, contentId));
+  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "Content Approval Requested",
@@ -3230,15 +3526,15 @@ async function requestApproval(contentId, requestedBy) {
   return { success: true };
 }
 async function approveContent(contentId, approvedBy) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(content).set({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(content).set({
     status: "approved",
     updatedAt: /* @__PURE__ */ new Date(),
     wasApproved: 1,
     approvedAt: /* @__PURE__ */ new Date()
-  }).where(eq20(content.id, contentId));
-  const [contentData] = await db5.select().from(content).where(eq20(content.id, contentId)).limit(1);
+  }).where(eq21(content.id, contentId));
+  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "Content Approved",
@@ -3248,9 +3544,9 @@ async function approveContent(contentId, approvedBy) {
   return { success: true };
 }
 async function requestRevision(contentId, requestedBy, reason) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.insert(contentRevisions).values({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.insert(contentRevisions).values({
     contentId,
     userId: requestedBy,
     requestedBy,
@@ -3262,11 +3558,11 @@ async function requestRevision(contentId, requestedBy, reason) {
     revisionNumber: 1,
     createdAt: /* @__PURE__ */ new Date()
   });
-  await db5.update(content).set({
+  await db6.update(content).set({
     status: "draft",
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq20(content.id, contentId));
-  const [contentData] = await db5.select().from(content).where(eq20(content.id, contentId)).limit(1);
+  }).where(eq21(content.id, contentId));
+  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "Revision Requested",
@@ -3276,15 +3572,15 @@ async function requestRevision(contentId, requestedBy, reason) {
   return { success: true };
 }
 async function getPendingApprovals(userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const pendingContent = await db5.select().from(content).where(and16(eq20(content.status, "in_progress"), eq20(content.createdBy, userId))).orderBy(desc9(content.updatedAt));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const pendingContent = await db6.select().from(content).where(and17(eq21(content.status, "in_progress"), eq21(content.createdBy, userId))).orderBy(desc10(content.updatedAt));
   return pendingContent;
 }
 async function getRevisionRequests(contentId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const revisions = await db5.select({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const revisions = await db6.select({
     id: contentRevisions.id,
     reason: contentRevisions.reason,
     status: contentRevisions.status,
@@ -3292,29 +3588,29 @@ async function getRevisionRequests(contentId) {
     completedAt: contentRevisions.completedAt,
     requestedBy: contentRevisions.requestedBy,
     userName: users.name
-  }).from(contentRevisions).leftJoin(users, eq20(contentRevisions.requestedBy, users.id)).where(eq20(contentRevisions.contentId, contentId)).orderBy(desc9(contentRevisions.createdAt));
+  }).from(contentRevisions).leftJoin(users, eq21(contentRevisions.requestedBy, users.id)).where(eq21(contentRevisions.contentId, contentId)).orderBy(desc10(contentRevisions.createdAt));
   return revisions;
 }
 async function completeRevision(revisionId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(contentRevisions).set({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(contentRevisions).set({
     status: "completed",
     completedAt: /* @__PURE__ */ new Date()
-  }).where(eq20(contentRevisions.id, revisionId));
-  const [revision] = await db5.select().from(contentRevisions).where(eq20(contentRevisions.id, revisionId)).limit(1);
+  }).where(eq21(contentRevisions.id, revisionId));
+  const [revision] = await db6.select().from(contentRevisions).where(eq21(contentRevisions.id, revisionId)).limit(1);
   if (revision) {
-    await db5.update(content).set({
+    await db6.update(content).set({
       status: "draft",
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq20(content.id, revision.contentId));
+    }).where(eq21(content.id, revision.contentId));
   }
   return { success: true };
 }
 async function addComment2(contentId, userId, comment) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [result] = await db5.insert(contentComments).values({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [result] = await db6.insert(contentComments).values({
     contentId,
     userId,
     comment,
@@ -3322,7 +3618,7 @@ async function addComment2(contentId, userId, comment) {
     createdAt: /* @__PURE__ */ new Date(),
     updatedAt: /* @__PURE__ */ new Date()
   }).returning({ id: contentComments.id });
-  const [contentData] = await db5.select().from(content).where(eq20(content.id, contentId)).limit(1);
+  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "New Comment on Content",
@@ -3332,11 +3628,11 @@ async function addComment2(contentId, userId, comment) {
   return { id: result.id };
 }
 async function getApprovalStats(userId) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const pending = await db5.select({ id: content.id }).from(content).where(and16(eq20(content.status, "in_progress"), eq20(content.createdBy, userId)));
-  const approved = await db5.select({ id: content.id }).from(content).where(and16(eq20(content.wasApproved, 1), eq20(content.createdBy, userId)));
-  const revisionRequested = await db5.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq20(contentRevisions.contentId, content.id)).where(and16(eq20(contentRevisions.status, "pending"), eq20(content.createdBy, userId)));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const pending = await db6.select({ id: content.id }).from(content).where(and17(eq21(content.status, "in_progress"), eq21(content.createdBy, userId)));
+  const approved = await db6.select({ id: content.id }).from(content).where(and17(eq21(content.wasApproved, 1), eq21(content.createdBy, userId)));
+  const revisionRequested = await db6.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq21(contentRevisions.contentId, content.id)).where(and17(eq21(contentRevisions.status, "pending"), eq21(content.createdBy, userId)));
   return {
     pending: pending.length,
     approved: approved.length,
@@ -3362,11 +3658,11 @@ __export(abTesting_exports, {
   setABTestWinner: () => setABTestWinner,
   updateABTestResults: () => updateABTestResults
 });
-import { eq as eq21, desc as desc10 } from "drizzle-orm";
+import { eq as eq22, desc as desc11 } from "drizzle-orm";
 async function createABTest(data) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  const [result] = await db5.insert(abTests).values({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [result] = await db6.insert(abTests).values({
     clientId: data.clientId,
     topic: data.topic,
     customPrompt: data.customPrompt || null,
@@ -3378,8 +3674,8 @@ async function createABTest(data) {
   return result.id;
 }
 async function updateABTestResults(id, versionData) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
   const updates = {};
   if (versionData.version === "A") {
     updates.contentA = versionData.content;
@@ -3398,35 +3694,35 @@ async function updateABTestResults(id, versionData) {
     updates.inputTokensB = versionData.inputTokens;
     updates.outputTokensB = versionData.outputTokens;
   }
-  await db5.update(abTests).set(updates).where(eq21(abTests.id, id));
+  await db6.update(abTests).set(updates).where(eq22(abTests.id, id));
 }
 async function setABTestWinner(id, winner, notes) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.update(abTests).set({
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.update(abTests).set({
     winner,
     notes: notes || null
-  }).where(eq21(abTests.id, id));
+  }).where(eq22(abTests.id, id));
 }
 async function getABTestById(id) {
-  const db5 = await getDb();
-  if (!db5) return null;
-  const [test] = await db5.select().from(abTests).where(eq21(abTests.id, id));
+  const db6 = await getDb();
+  if (!db6) return null;
+  const [test] = await db6.select().from(abTests).where(eq22(abTests.id, id));
   return test || null;
 }
 async function listABTests() {
-  const db5 = await getDb();
-  if (!db5) return [];
-  const tests = await db5.select({
+  const db6 = await getDb();
+  if (!db6) return [];
+  const tests = await db6.select({
     test: abTests,
     client: clients
-  }).from(abTests).leftJoin(clients, eq21(abTests.clientId, clients.id)).orderBy(desc10(abTests.createdAt));
+  }).from(abTests).leftJoin(clients, eq22(abTests.clientId, clients.id)).orderBy(desc11(abTests.createdAt));
   return tests;
 }
 async function deleteABTest(id) {
-  const db5 = await getDb();
-  if (!db5) throw new Error("Database not available");
-  await db5.delete(abTests).where(eq21(abTests.id, id));
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  await db6.delete(abTests).where(eq22(abTests.id, id));
 }
 var init_abTesting = __esm({
   "server/abTesting.ts"() {
@@ -3522,6 +3818,19 @@ var requireUser = t.middleware(async (opts) => {
   });
 });
 var protectedProcedure = t.procedure.use(requireUser);
+var requirePortalUser = t.middleware(async (opts) => {
+  const { ctx, next } = opts;
+  if (!ctx.portalUser) {
+    throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+  return next({
+    ctx: {
+      ...ctx,
+      portalUser: ctx.portalUser
+    }
+  });
+});
+var portalProcedure = t.procedure.use(requirePortalUser);
 function rateLimit(opts) {
   return t.middleware(async ({ ctx, next }) => {
     const who = ctx.user ? `u:${ctx.user.id}` : `ip:${ctx.req.ip || ctx.req.socket?.remoteAddress || "unknown"}`;
@@ -3788,11 +4097,11 @@ function deny() {
   });
 }
 async function requireDb() {
-  const db5 = await getDb();
-  if (!db5) {
+  const db6 = await getDb();
+  if (!db6) {
     throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
   }
-  return db5;
+  return db6;
 }
 var OWNED_TABLES = {
   client: clients,
@@ -3812,8 +4121,8 @@ var OWNED_TABLES = {
 };
 async function assertOwned(kind, id, userId) {
   const table = OWNED_TABLES[kind];
-  const db5 = await requireDb();
-  const rows = await db5.select({ id: table.id }).from(table).where(and(eq2(table.id, id), eq2(table.createdBy, userId))).limit(1);
+  const db6 = await requireDb();
+  const rows = await db6.select({ id: table.id }).from(table).where(and(eq2(table.id, id), eq2(table.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 var assertClient = (userId, id) => assertOwned("client", id, userId);
@@ -3829,28 +4138,28 @@ var assertAiPrompt = (userId, id) => assertOwned("aiPrompt", id, userId);
 var assertSiteAudit = (userId, id) => assertOwned("siteAudit", id, userId);
 var assertTrackedKeyword = (userId, id) => assertOwned("trackedKeyword", id, userId);
 async function assertContentComment(userId, commentId) {
-  const db5 = await requireDb();
-  const rows = await db5.select({ id: contentComments.id }).from(contentComments).innerJoin(content, eq2(contentComments.contentId, content.id)).where(and(eq2(contentComments.id, commentId), eq2(content.createdBy, userId))).limit(1);
+  const db6 = await requireDb();
+  const rows = await db6.select({ id: contentComments.id }).from(contentComments).innerJoin(content, eq2(contentComments.contentId, content.id)).where(and(eq2(contentComments.id, commentId), eq2(content.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertRepurposed(userId, repurposedId) {
-  const db5 = await requireDb();
-  const rows = await db5.select({ id: contentRepurposed.id }).from(contentRepurposed).innerJoin(content, eq2(contentRepurposed.contentId, content.id)).where(and(eq2(contentRepurposed.id, repurposedId), eq2(content.createdBy, userId))).limit(1);
+  const db6 = await requireDb();
+  const rows = await db6.select({ id: contentRepurposed.id }).from(contentRepurposed).innerJoin(content, eq2(contentRepurposed.contentId, content.id)).where(and(eq2(contentRepurposed.id, repurposedId), eq2(content.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertRevision(userId, revisionId) {
-  const db5 = await requireDb();
-  const rows = await db5.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq2(contentRevisions.contentId, content.id)).where(and(eq2(contentRevisions.id, revisionId), eq2(content.createdBy, userId))).limit(1);
+  const db6 = await requireDb();
+  const rows = await db6.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq2(contentRevisions.contentId, content.id)).where(and(eq2(contentRevisions.id, revisionId), eq2(content.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertBrief(userId, briefId) {
-  const db5 = await requireDb();
-  const rows = await db5.select({ id: contentBriefs.id }).from(contentBriefs).innerJoin(clients, eq2(contentBriefs.clientId, clients.id)).where(and(eq2(contentBriefs.id, briefId), eq2(clients.createdBy, userId))).limit(1);
+  const db6 = await requireDb();
+  const rows = await db6.select({ id: contentBriefs.id }).from(contentBriefs).innerJoin(clients, eq2(contentBriefs.clientId, clients.id)).where(and(eq2(contentBriefs.id, briefId), eq2(clients.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertPortalUser(userId, portalUserId) {
-  const db5 = await requireDb();
-  const rows = await db5.select({ id: clientPortalUsers.id }).from(clientPortalUsers).innerJoin(clients, eq2(clientPortalUsers.clientId, clients.id)).where(and(eq2(clientPortalUsers.id, portalUserId), eq2(clients.createdBy, userId))).limit(1);
+  const db6 = await requireDb();
+  const rows = await db6.select({ id: clientPortalUsers.id }).from(clientPortalUsers).innerJoin(clients, eq2(clientPortalUsers.clientId, clients.id)).where(and(eq2(clientPortalUsers.id, portalUserId), eq2(clients.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 
@@ -3963,9 +4272,9 @@ var templatesRouter = router({
     const { defaultTemplates: defaultTemplates2 } = await Promise.resolve().then(() => (init_templateSeeds(), templateSeeds_exports));
     const { getDb: getDb2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { contentTemplates: contentTemplates2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const db5 = await getDb2();
-    if (!db5) throw new Error("Database not available");
-    const existing = await db5.select().from(contentTemplates2).where(eq4(contentTemplates2.createdBy, ctx.user.id));
+    const db6 = await getDb2();
+    if (!db6) throw new Error("Database not available");
+    const existing = await db6.select().from(contentTemplates2).where(eq4(contentTemplates2.createdBy, ctx.user.id));
     if (existing.length > 0) {
       return { message: "Templates already seeded", count: 0 };
     }
@@ -4090,11 +4399,11 @@ var analyticsRouter = router({
   // Get all analytics across the current user's content for overview
   getAllMetrics: protectedProcedure.query(async ({ ctx }) => {
     const { getDb: getDb2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const db5 = await getDb2();
-    if (!db5) return [];
+    const db6 = await getDb2();
+    if (!db6) return [];
     const { contentAnalytics: contentAnalytics2, content: content2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq22 } = await import("drizzle-orm");
-    const rows = await db5.select({ analytics: contentAnalytics2 }).from(contentAnalytics2).innerJoin(content2, eq22(contentAnalytics2.contentId, content2.id)).where(eq22(content2.createdBy, ctx.user.id)).orderBy(contentAnalytics2.recordedAt);
+    const { eq: eq23 } = await import("drizzle-orm");
+    const rows = await db6.select({ analytics: contentAnalytics2 }).from(contentAnalytics2).innerJoin(content2, eq23(contentAnalytics2.contentId, content2.id)).where(eq23(content2.createdBy, ctx.user.id)).orderBy(contentAnalytics2.recordedAt);
     return rows.map((r) => r.analytics);
   })
 });
@@ -5121,9 +5430,9 @@ import { eq as eq6 } from "drizzle-orm";
 var agencySettingsRouter = router({
   // Get all settings
   getAll: protectedProcedure.query(async () => {
-    const db5 = await getDb();
-    if (!db5) return {};
-    const rows = await db5.select().from(agencySettings);
+    const db6 = await getDb();
+    if (!db6) return {};
+    const rows = await db6.select().from(agencySettings);
     const settings = {};
     for (const row of rows) {
       settings[row.settingKey] = row.settingValue || "";
@@ -5135,27 +5444,27 @@ var agencySettingsRouter = router({
     key: z14.string(),
     value: z14.string()
   })).mutation(async ({ input }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    await db5.insert(agencySettings).values({ settingKey: input.key, settingValue: input.value }).onConflictDoUpdate({ target: agencySettings.settingKey, set: { settingValue: input.value } });
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    await db6.insert(agencySettings).values({ settingKey: input.key, settingValue: input.value }).onConflictDoUpdate({ target: agencySettings.settingKey, set: { settingValue: input.value } });
     return { success: true };
   }),
   // Update multiple settings at once
   updateBatch: protectedProcedure.input(z14.object({
     settings: z14.record(z14.string(), z14.string())
   })).mutation(async ({ input }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     for (const [key, value] of Object.entries(input.settings)) {
-      await db5.insert(agencySettings).values({ settingKey: key, settingValue: value }).onConflictDoUpdate({ target: agencySettings.settingKey, set: { settingValue: value } });
+      await db6.insert(agencySettings).values({ settingKey: key, settingValue: value }).onConflictDoUpdate({ target: agencySettings.settingKey, set: { settingValue: value } });
     }
     return { success: true };
   }),
   // Get default prompt templates
   getPromptTemplates: protectedProcedure.query(async () => {
-    const db5 = await getDb();
-    if (!db5) return [];
-    const rows = await db5.select().from(agencySettings);
+    const db6 = await getDb();
+    if (!db6) return [];
+    const rows = await db6.select().from(agencySettings);
     const templates = rows.filter((r) => r.settingKey.startsWith("prompt_template_")).map((r) => ({
       id: r.settingKey,
       name: r.settingKey.replace("prompt_template_", "").replace(/_/g, " "),
@@ -5168,17 +5477,17 @@ var agencySettingsRouter = router({
     name: z14.string(),
     prompt: z14.string()
   })).mutation(async ({ input }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     const key = `prompt_template_${input.name.replace(/\s+/g, "_").toLowerCase()}`;
-    await db5.insert(agencySettings).values({ settingKey: key, settingValue: input.prompt }).onConflictDoUpdate({ target: agencySettings.settingKey, set: { settingValue: input.prompt } });
+    await db6.insert(agencySettings).values({ settingKey: key, settingValue: input.prompt }).onConflictDoUpdate({ target: agencySettings.settingKey, set: { settingValue: input.prompt } });
     return { success: true };
   }),
   // Delete a prompt template
   deletePromptTemplate: protectedProcedure.input(z14.object({ key: z14.string() })).mutation(async ({ input }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    await db5.delete(agencySettings).where(eq6(agencySettings.settingKey, input.key));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    await db6.delete(agencySettings).where(eq6(agencySettings.settingKey, input.key));
     return { success: true };
   })
 });
@@ -5192,9 +5501,9 @@ import { eq as eq7 } from "drizzle-orm";
 init_schema();
 var recurringPlansRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    const db5 = await getDb();
-    if (!db5) return [];
-    return db5.select().from(recurringPlans).where(eq7(recurringPlans.createdBy, ctx.user.id));
+    const db6 = await getDb();
+    if (!db6) return [];
+    return db6.select().from(recurringPlans).where(eq7(recurringPlans.createdBy, ctx.user.id));
   }),
   create: protectedProcedure.input(
     z15.object({
@@ -5209,8 +5518,8 @@ var recurringPlansRouter = router({
     })
   ).mutation(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     const now = /* @__PURE__ */ new Date();
     const nextRunDate = new Date(now);
     switch (input.frequency) {
@@ -5227,7 +5536,7 @@ var recurringPlansRouter = router({
         nextRunDate.setMonth(now.getMonth() + 1);
         break;
     }
-    const result = await db5.insert(recurringPlans).values({
+    const result = await db6.insert(recurringPlans).values({
       ...input,
       aiModel: input.aiModel || DEFAULT_TEXT_MODEL,
       enableWebResearch: 0,
@@ -5239,25 +5548,25 @@ var recurringPlansRouter = router({
   }),
   toggle: protectedProcedure.input(z15.object({ id: z15.number() })).mutation(async ({ ctx, input }) => {
     await assertRecurringPlan(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const plan = await db5.select().from(recurringPlans).where(eq7(recurringPlans.id, input.id)).limit(1);
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const plan = await db6.select().from(recurringPlans).where(eq7(recurringPlans.id, input.id)).limit(1);
     if (!plan[0]) throw new Error("Plan not found");
-    await db5.update(recurringPlans).set({ isActive: plan[0].isActive ? 0 : 1 }).where(eq7(recurringPlans.id, input.id));
+    await db6.update(recurringPlans).set({ isActive: plan[0].isActive ? 0 : 1 }).where(eq7(recurringPlans.id, input.id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z15.object({ id: z15.number() })).mutation(async ({ ctx, input }) => {
     await assertRecurringPlan(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    await db5.delete(recurringPlans).where(eq7(recurringPlans.id, input.id));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    await db6.delete(recurringPlans).where(eq7(recurringPlans.id, input.id));
     return { success: true };
   }),
   runNow: protectedProcedure.use(limitLlmBatch).input(z15.object({ id: z15.number() })).mutation(async ({ ctx, input }) => {
     await assertRecurringPlan(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const plan = await db5.select().from(recurringPlans).where(eq7(recurringPlans.id, input.id)).limit(1);
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const plan = await db6.select().from(recurringPlans).where(eq7(recurringPlans.id, input.id)).limit(1);
     if (!plan[0]) throw new Error("Plan not found");
     const planData = plan[0];
     const { assertClientWithinBudget: assertClientWithinBudget2 } = await Promise.resolve().then(() => (init_budgetTracking(), budgetTracking_exports));
@@ -5298,7 +5607,7 @@ Topic: ${topic}` : `Write a comprehensive, SEO-optimized blog post about: ${topi
           console.error("Image generation failed:", error);
         }
       }
-      await db5.insert(content).values({
+      await db6.insert(content).values({
         clientId: planData.clientId,
         topic,
         title: topic,
@@ -5328,7 +5637,7 @@ Topic: ${topic}` : `Write a comprehensive, SEO-optimized blog post about: ${topi
         nextRunDate.setMonth(now.getMonth() + 1);
         break;
     }
-    await db5.update(recurringPlans).set({ lastRunDate: now, nextRunDate }).where(eq7(recurringPlans.id, input.id));
+    await db6.update(recurringPlans).set({ lastRunDate: now, nextRunDate }).where(eq7(recurringPlans.id, input.id));
     return { success: true, generatedCount: topics.length };
   })
 });
@@ -5344,9 +5653,9 @@ init_db();
 init_schema();
 import { eq as eq8, and as and4 } from "drizzle-orm";
 async function getGAConnection(clientId) {
-  const db5 = await getDb();
-  if (!db5) return null;
-  const connections = await db5.select().from(googleAnalyticsConnections).where(
+  const db6 = await getDb();
+  if (!db6) return null;
+  const connections = await db6.select().from(googleAnalyticsConnections).where(
     and4(
       eq8(googleAnalyticsConnections.clientId, clientId),
       eq8(googleAnalyticsConnections.isActive, 1)
@@ -5439,16 +5748,16 @@ async function syncContentPerformance(clientId) {
     return { success: false, message: "No GA connection found" };
   }
   try {
-    const db5 = await getDb();
-    if (!db5) return { success: false, message: "Database not available" };
-    const clientContent = await db5.select().from(content).where(
+    const db6 = await getDb();
+    if (!db6) return { success: false, message: "Database not available" };
+    const clientContent = await db6.select().from(content).where(
       and4(
         eq8(content.clientId, clientId),
         eq8(content.status, "approved")
         // Using 'approved' status as closest to published
       )
     );
-    await db5.update(googleAnalyticsConnections).set({ lastSyncedAt: /* @__PURE__ */ new Date() }).where(eq8(googleAnalyticsConnections.id, connection.id));
+    await db6.update(googleAnalyticsConnections).set({ lastSyncedAt: /* @__PURE__ */ new Date() }).where(eq8(googleAnalyticsConnections.id, connection.id));
     return {
       success: true,
       message: `Synced performance data for ${clientContent.length} content items`
@@ -5477,11 +5786,11 @@ var googleAnalyticsRouter = router({
     })
   ).mutation(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     const existing = await getGAConnection(input.clientId);
     if (existing) {
-      await db5.update(googleAnalyticsConnections).set({
+      await db6.update(googleAnalyticsConnections).set({
         propertyId: input.propertyId,
         viewId: input.viewId,
         serviceAccountEmail: input.serviceAccountEmail,
@@ -5490,7 +5799,7 @@ var googleAnalyticsRouter = router({
       }).where(eq9(googleAnalyticsConnections.id, existing.id));
       return { success: true, id: existing.id };
     } else {
-      await db5.insert(googleAnalyticsConnections).values({
+      await db6.insert(googleAnalyticsConnections).values({
         clientId: input.clientId,
         propertyId: input.propertyId,
         viewId: input.viewId,
@@ -5505,13 +5814,13 @@ var googleAnalyticsRouter = router({
   // Delete GA connection
   delete: protectedProcedure.input(z16.object({ clientId: z16.number() })).mutation(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     const connection = await getGAConnection(input.clientId);
     if (!connection) {
       return { success: false, message: "Connection not found" };
     }
-    await db5.delete(googleAnalyticsConnections).where(eq9(googleAnalyticsConnections.id, connection.id));
+    await db6.delete(googleAnalyticsConnections).where(eq9(googleAnalyticsConnections.id, connection.id));
     return { success: true };
   }),
   // Fetch traffic metrics
@@ -5575,9 +5884,9 @@ var wordpressRouter = router({
   // Get all WordPress connections for a client
   getConnections: protectedProcedure.input(z17.object({ clientId: z17.number() })).query(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    return db5.select().from(wordpressConnections).where(eq10(wordpressConnections.clientId, input.clientId)).orderBy(desc2(wordpressConnections.createdAt));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    return db6.select().from(wordpressConnections).where(eq10(wordpressConnections.clientId, input.clientId)).orderBy(desc2(wordpressConnections.createdAt));
   }),
   // Add a new WordPress connection
   addConnection: protectedProcedure.input(z17.object({
@@ -5591,9 +5900,9 @@ var wordpressRouter = router({
     defaultCategoryId: z17.number().optional()
   })).mutation(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const [connection] = await db5.insert(wordpressConnections).values({
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const [connection] = await db6.insert(wordpressConnections).values({
       ...input,
       createdBy: ctx.user.id
     }).returning({ id: wordpressConnections.id });
@@ -5612,18 +5921,18 @@ var wordpressRouter = router({
     isActive: z17.number().min(0).max(1).optional()
   })).mutation(async ({ ctx, input }) => {
     await assertWordpressConnection(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     const { id, ...updates } = input;
-    await db5.update(wordpressConnections).set(updates).where(eq10(wordpressConnections.id, id));
+    await db6.update(wordpressConnections).set(updates).where(eq10(wordpressConnections.id, id));
     return { success: true };
   }),
   // Delete a WordPress connection
   deleteConnection: protectedProcedure.input(z17.object({ id: z17.number() })).mutation(async ({ ctx, input }) => {
     await assertWordpressConnection(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    await db5.delete(wordpressConnections).where(eq10(wordpressConnections.id, input.id));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    await db6.delete(wordpressConnections).where(eq10(wordpressConnections.id, input.id));
     return { success: true };
   }),
   // Test WordPress connection
@@ -5665,13 +5974,13 @@ var wordpressRouter = router({
     await assertContent(ctx.user.id, input.contentId);
     await assertWordpressConnection(ctx.user.id, input.connectionId);
     try {
-      const db5 = await getDb();
-      if (!db5) throw new Error("Database not available");
-      const [contentData] = await db5.select().from(content).where(eq10(content.id, input.contentId));
+      const db6 = await getDb();
+      if (!db6) throw new Error("Database not available");
+      const [contentData] = await db6.select().from(content).where(eq10(content.id, input.contentId));
       if (!contentData) {
         throw new Error("Content not found");
       }
-      const [connection] = await db5.select().from(wordpressConnections).where(eq10(wordpressConnections.id, input.connectionId));
+      const [connection] = await db6.select().from(wordpressConnections).where(eq10(wordpressConnections.id, input.connectionId));
       if (!connection) {
         throw new Error("WordPress connection not found");
       }
@@ -5736,9 +6045,9 @@ var wordpressRouter = router({
   // Get publish history for content
   getPublishHistory: protectedProcedure.input(z17.object({ contentId: z17.number() })).query(async ({ ctx, input }) => {
     await assertContent(ctx.user.id, input.contentId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    return db5.select({
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    return db6.select({
       id: wordpressPublishHistory.id,
       connectionId: wordpressPublishHistory.connectionId,
       wordpressPostId: wordpressPublishHistory.wordpressPostId,
@@ -5764,23 +6073,23 @@ import { and as and7, eq as eq11, desc as desc3 } from "drizzle-orm";
 var designStandardsRouter = router({
   // Get all design standards
   getAll: protectedProcedure.query(async ({ ctx }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    return db5.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isActive, 1))).orderBy(desc3(designStandards.isDefault), desc3(designStandards.createdAt));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    return db6.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isActive, 1))).orderBy(desc3(designStandards.isDefault), desc3(designStandards.createdAt));
   }),
   // Get default design standard
   getDefault: protectedProcedure.query(async ({ ctx }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const [standard] = await db5.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1))).limit(1);
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const [standard] = await db6.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1))).limit(1);
     return standard || null;
   }),
   // Get design standard by ID
   getById: protectedProcedure.input(z18.object({ id: z18.number() })).query(async ({ ctx, input }) => {
     await assertDesignStandard(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const [standard] = await db5.select().from(designStandards).where(eq11(designStandards.id, input.id));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const [standard] = await db6.select().from(designStandards).where(eq11(designStandards.id, input.id));
     return standard || null;
   }),
   // Create new design standard
@@ -5793,12 +6102,12 @@ var designStandardsRouter = router({
     designStyle: z18.string().optional(),
     isDefault: z18.boolean().optional()
   })).mutation(async ({ ctx, input }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     if (input.isDefault) {
-      await db5.update(designStandards).set({ isDefault: 0 }).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1)));
+      await db6.update(designStandards).set({ isDefault: 0 }).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1)));
     }
-    const [result] = await db5.insert(designStandards).values({
+    const [result] = await db6.insert(designStandards).values({
       name: input.name,
       description: input.description || null,
       designPrompt: input.designPrompt,
@@ -5822,11 +6131,11 @@ var designStandardsRouter = router({
     isDefault: z18.boolean().optional()
   })).mutation(async ({ ctx, input }) => {
     await assertDesignStandard(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     const { id, ...updates } = input;
     if (updates.isDefault) {
-      await db5.update(designStandards).set({ isDefault: 0 }).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1)));
+      await db6.update(designStandards).set({ isDefault: 0 }).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1)));
     }
     const updateData = {};
     if (updates.name !== void 0) updateData.name = updates.name;
@@ -5836,22 +6145,22 @@ var designStandardsRouter = router({
     if (updates.colorScheme !== void 0) updateData.colorScheme = updates.colorScheme;
     if (updates.designStyle !== void 0) updateData.designStyle = updates.designStyle;
     if (updates.isDefault !== void 0) updateData.isDefault = updates.isDefault ? 1 : 0;
-    await db5.update(designStandards).set(updateData).where(eq11(designStandards.id, id));
+    await db6.update(designStandards).set(updateData).where(eq11(designStandards.id, id));
     return { success: true };
   }),
   // Delete design standard
   delete: protectedProcedure.input(z18.object({ id: z18.number() })).mutation(async ({ ctx, input }) => {
     await assertDesignStandard(ctx.user.id, input.id);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    await db5.update(designStandards).set({ isActive: 0 }).where(eq11(designStandards.id, input.id));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    await db6.update(designStandards).set({ isActive: 0 }).where(eq11(designStandards.id, input.id));
     return { success: true };
   }),
   // Initialize default Takeoff design standard (one-time setup)
   initializeDefault: protectedProcedure.mutation(async ({ ctx }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const [existing] = await db5.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1))).limit(1);
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const [existing] = await db6.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1))).limit(1);
     if (existing) {
       return { success: false, message: "Default design standard already exists" };
     }
@@ -5916,7 +6225,7 @@ Include a visible 5-star rating and a CTA button labeled 'Leave a Google Review'
 SPECIAL RULE: SERVICE AREA SECTIONS
 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 Always request an embedded Google Maps iframe before generating this section.`;
-    const [result] = await db5.insert(designStandards).values({
+    const [result] = await db6.insert(designStandards).values({
       name: "Takeoff Premium Design",
       description: "Elite, motion-driven, premium website design standards based on Takeoff Digital Solutions",
       designPrompt: takeoffDesignPrompt,
@@ -5943,9 +6252,9 @@ var bulkPublishingRouter = router({
     wordpressStatus: z19.enum(["draft", "publish", "pending"]).default("draft")
   })).mutation(async ({ ctx, input }) => {
     await assertContent(ctx.user.id, input.contentId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const [contentData] = await db5.select().from(content).where(eq12(content.id, input.contentId));
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const [contentData] = await db6.select().from(content).where(eq12(content.id, input.contentId));
     if (!contentData) {
       throw new Error("Content not found");
     }
@@ -5953,7 +6262,7 @@ var bulkPublishingRouter = router({
       wordpress: []
     };
     if (input.wordpressConnectionIds && input.wordpressConnectionIds.length > 0) {
-      const connections = await db5.select().from(wordpressConnections).where(and8(
+      const connections = await db6.select().from(wordpressConnections).where(and8(
         inArray(wordpressConnections.id, input.wordpressConnectionIds),
         eq12(wordpressConnections.createdBy, ctx.user.id)
       ));
@@ -5982,7 +6291,7 @@ var bulkPublishingRouter = router({
               message: "Published successfully",
               url: data.link
             });
-            await db5.insert(wordpressPublishHistory).values({
+            await db6.insert(wordpressPublishHistory).values({
               contentId: input.contentId,
               connectionId: connection.id,
               wordpressPostId: data.id,
@@ -5999,7 +6308,7 @@ var bulkPublishingRouter = router({
               success: false,
               message: `Failed: ${response.status} - ${errorText}`
             });
-            await db5.insert(wordpressPublishHistory).values({
+            await db6.insert(wordpressPublishHistory).values({
               contentId: input.contentId,
               connectionId: connection.id,
               wordpressPostId: 0,
@@ -6018,7 +6327,7 @@ var bulkPublishingRouter = router({
             success: false,
             message: errorMessage
           });
-          await db5.insert(wordpressPublishHistory).values({
+          await db6.insert(wordpressPublishHistory).values({
             contentId: input.contentId,
             connectionId: connection.id,
             wordpressPostId: 0,
@@ -6051,9 +6360,9 @@ import { and as and9, eq as eq13, desc as desc4, gte as gte3, sql as sql4 } from
 var publishingAnalyticsRouter = router({
   // Get overall publishing statistics
   getOverallStats: protectedProcedure.query(async ({ ctx }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const [wpStats] = await db5.select({
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const [wpStats] = await db6.select({
       total: sql4`COUNT(*)`,
       successful: sql4`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END)`,
       failed: sql4`SUM(CASE WHEN ${wordpressPublishHistory.success} = 0 THEN 1 ELSE 0 END)`
@@ -6075,9 +6384,9 @@ var publishingAnalyticsRouter = router({
   // Get publishing history for a specific content
   getContentPublishHistory: protectedProcedure.input(z20.object({ contentId: z20.number() })).query(async ({ ctx, input }) => {
     await assertContent(ctx.user.id, input.contentId);
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const wpHistory = await db5.select({
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const wpHistory = await db6.select({
       id: wordpressPublishHistory.id,
       platform: sql4`'wordpress'`,
       siteName: wordpressConnections.siteName,
@@ -6090,9 +6399,9 @@ var publishingAnalyticsRouter = router({
   }),
   // Get top performing content by publish count
   getTopPublishedContent: protectedProcedure.input(z20.object({ limit: z20.number().default(10) })).query(async ({ ctx, input }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const topContent = await db5.select({
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const topContent = await db6.select({
       contentId: content.id,
       title: content.title,
       wpPublishCount: sql4`(
@@ -6111,9 +6420,9 @@ var publishingAnalyticsRouter = router({
   }),
   // Get recent publishing activity
   getRecentActivity: protectedProcedure.input(z20.object({ limit: z20.number().default(20) })).query(async ({ ctx, input }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
-    const wpActivity = await db5.select({
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
+    const wpActivity = await db6.select({
       id: wordpressPublishHistory.id,
       platform: sql4`'wordpress'`,
       contentTitle: content.title,
@@ -6126,11 +6435,11 @@ var publishingAnalyticsRouter = router({
   }),
   // Get publishing trends over time (last 30 days)
   getPublishingTrends: protectedProcedure.query(async ({ ctx }) => {
-    const db5 = await getDb();
-    if (!db5) throw new Error("Database not available");
+    const db6 = await getDb();
+    if (!db6) throw new Error("Database not available");
     const thirtyDaysAgo = /* @__PURE__ */ new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const wpTrends = await db5.select({
+    const wpTrends = await db6.select({
       date: sql4`DATE(${wordpressPublishHistory.publishedAt}) as date`,
       count: sql4`COUNT(*) as count`,
       successful: sql4`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END) as successful`
@@ -6975,8 +7284,8 @@ You can now publish this content to the client's CMS via the Publishing page.`
   portalBranding: router({
     get: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
-      const { getPortalBranding: getPortalBranding2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      return await getPortalBranding2(input.clientId);
+      const { getPortalBranding: getPortalBranding3 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      return await getPortalBranding3(input.clientId);
     }),
     upsert: protectedProcedure.input(z24.object({
       clientId: z24.number(),
@@ -7020,9 +7329,67 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { loginClientPortalUser: loginClientPortalUser2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await loginClientPortalUser2(input.email, input.password);
     }),
-    // Get current user (requires client portal token)
-    me: publicProcedure.query(async ({ ctx }) => {
-      return null;
+    // Create an active portal login directly (no invitation round-trip).
+    createDirectLogin: protectedProcedure.input(z24.object({
+      clientId: z24.number(),
+      email: z24.string().email(),
+      name: z24.string().min(1),
+      password: z24.string().min(8),
+      role: z24.enum(["client_admin", "client_viewer"]).default("client_admin")
+    })).mutation(async ({ ctx, input }) => {
+      await assertClient(ctx.user.id, input.clientId);
+      const { createDirectPortalUser: createDirectPortalUser2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
+      return await createDirectPortalUser2(input.clientId, input.email, input.name, input.password, input.role);
+    }),
+    // Mint a portal session so the owner can view a client's portal without their password.
+    openAsClient: protectedProcedure.input(z24.object({ clientId: z24.number() })).mutation(async ({ ctx, input }) => {
+      await assertClient(ctx.user.id, input.clientId);
+      const client = await getClientById(input.clientId);
+      const { createPortalImpersonationToken: createPortalImpersonationToken2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
+      return createPortalImpersonationToken2(input.clientId, client?.name ?? "Client");
+    }),
+    // --- Portal-authenticated endpoints (Bearer token; scoped to ctx.portalUser.clientId) ---
+    me: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalMe: getPortalMe2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalMe2(ctx.portalUser.clientId, ctx.portalUser.role, ctx.portalUser.email);
+    }),
+    branding: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalBranding: getPortalBranding3 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalBranding3(ctx.portalUser.clientId);
+    }),
+    stats: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalStats: getPortalStats2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalStats2(ctx.portalUser.clientId);
+    }),
+    myContent: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalContentList: getPortalContentList2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalContentList2(ctx.portalUser.clientId);
+    }),
+    contentById: portalProcedure.input(z24.object({ id: z24.number() })).query(async ({ ctx, input }) => {
+      const { getPortalContentById: getPortalContentById2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalContentById2(ctx.portalUser.clientId, input.id);
+    }),
+    approve: portalProcedure.input(z24.object({ contentId: z24.number() })).mutation(async ({ ctx, input }) => {
+      if (ctx.portalUser.role !== "client_admin") {
+        throw new TRPCError9({ code: "FORBIDDEN", message: "Only portal admins can approve content" });
+      }
+      const { portalApproveContent: portalApproveContent2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      const ok = await portalApproveContent2(ctx.portalUser.clientId, input.contentId);
+      if (!ok) throw new TRPCError9({ code: "NOT_FOUND", message: "Content not found" });
+      return { success: true };
+    }),
+    requestRevision: portalProcedure.input(z24.object({ contentId: z24.number(), reason: z24.string().min(1) })).mutation(async ({ ctx, input }) => {
+      if (ctx.portalUser.role !== "client_admin") {
+        throw new TRPCError9({ code: "FORBIDDEN", message: "Only portal admins can request revisions" });
+      }
+      const { portalRequestRevision: portalRequestRevision2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      const ok = await portalRequestRevision2(ctx.portalUser.clientId, input.contentId);
+      if (!ok) throw new TRPCError9({ code: "NOT_FOUND", message: "Content not found" });
+      return { success: true };
+    }),
+    performance: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalPerformance: getPortalPerformance2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalPerformance2(ctx.portalUser.clientId);
     }),
     // List portal users for a client
     listUsers: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {
@@ -7193,6 +7560,7 @@ You can now publish this content to the client's CMS via the Publishing page.`
 // server/_core/context.ts
 async function createContext(opts) {
   let user = null;
+  let portalUser = null;
   try {
     const { user: authedUser, session } = await sdk.authenticateRequest(opts.req);
     user = authedUser;
@@ -7215,10 +7583,26 @@ async function createContext(opts) {
   } catch (error) {
     user = null;
   }
+  try {
+    const auth = opts.req.headers["authorization"];
+    if (auth && auth.startsWith("Bearer ")) {
+      const { verifyClientPortalToken: verifyClientPortalToken2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
+      const decoded = verifyClientPortalToken2(auth.slice(7));
+      portalUser = {
+        userId: decoded.userId,
+        clientId: decoded.clientId,
+        email: decoded.email,
+        role: decoded.role
+      };
+    }
+  } catch {
+    portalUser = null;
+  }
   return {
     req: opts.req,
     res: opts.res,
-    user
+    user,
+    portalUser
   };
 }
 

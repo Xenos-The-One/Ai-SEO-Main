@@ -1,7 +1,7 @@
 import { COOKIE_NAME, SESSION_TTL_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { publicProcedure, router, protectedProcedure, portalProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -752,13 +752,88 @@ export const appRouter = router({
         return await loginClientPortalUser(input.email, input.password);
       }),
     
-    // Get current user (requires client portal token)
-    me: publicProcedure.query(async ({ ctx }) => {
-      // This would need custom context handling for client portal tokens
-      // For now, return null if not authenticated
-      return null;
+    // Create an active portal login directly (no invitation round-trip).
+    createDirectLogin: protectedProcedure
+      .input(z.object({
+        clientId: z.number(),
+        email: z.string().email(),
+        name: z.string().min(1),
+        password: z.string().min(8),
+        role: z.enum(["client_admin", "client_viewer"]).default("client_admin"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await assertClient(ctx.user.id, input.clientId);
+        const { createDirectPortalUser } = await import("./clientPortalAuth");
+        return await createDirectPortalUser(input.clientId, input.email, input.name, input.password, input.role);
+      }),
+
+    // Mint a portal session so the owner can view a client's portal without their password.
+    openAsClient: protectedProcedure
+      .input(z.object({ clientId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await assertClient(ctx.user.id, input.clientId);
+        const client = await getClientById(input.clientId);
+        const { createPortalImpersonationToken } = await import("./clientPortalAuth");
+        return createPortalImpersonationToken(input.clientId, client?.name ?? "Client");
+      }),
+
+    // --- Portal-authenticated endpoints (Bearer token; scoped to ctx.portalUser.clientId) ---
+    me: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalMe } = await import("./clientPortalData");
+      return getPortalMe(ctx.portalUser.clientId, ctx.portalUser.role, ctx.portalUser.email);
     }),
-    
+
+    branding: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalBranding } = await import("./clientPortalData");
+      return getPortalBranding(ctx.portalUser.clientId);
+    }),
+
+    stats: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalStats } = await import("./clientPortalData");
+      return getPortalStats(ctx.portalUser.clientId);
+    }),
+
+    myContent: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalContentList } = await import("./clientPortalData");
+      return getPortalContentList(ctx.portalUser.clientId);
+    }),
+
+    contentById: portalProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const { getPortalContentById } = await import("./clientPortalData");
+        return getPortalContentById(ctx.portalUser.clientId, input.id);
+      }),
+
+    approve: portalProcedure
+      .input(z.object({ contentId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.portalUser.role !== "client_admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only portal admins can approve content" });
+        }
+        const { portalApproveContent } = await import("./clientPortalData");
+        const ok = await portalApproveContent(ctx.portalUser.clientId, input.contentId);
+        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Content not found" });
+        return { success: true };
+      }),
+
+    requestRevision: portalProcedure
+      .input(z.object({ contentId: z.number(), reason: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.portalUser.role !== "client_admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only portal admins can request revisions" });
+        }
+        const { portalRequestRevision } = await import("./clientPortalData");
+        const ok = await portalRequestRevision(ctx.portalUser.clientId, input.contentId);
+        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Content not found" });
+        return { success: true };
+      }),
+
+    performance: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalPerformance } = await import("./clientPortalData");
+      return getPortalPerformance(ctx.portalUser.clientId);
+    }),
+
     // List portal users for a client
     listUsers: protectedProcedure
       .input(z.object({ clientId: z.number() }))

@@ -29,13 +29,13 @@ export default function PortalContentDetail() {
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data: content, isLoading, refetch } = trpc.content.getById.useQuery(
+  const { data: content, isLoading, refetch } = trpc.clientPortal.contentById.useQuery(
     { id: contentId },
     { enabled: contentId > 0 && !!user }
   );
 
-  const approveMutation = trpc.approvals.approve.useMutation();
-  const requestRevisionMutation = trpc.approvals.requestRevision.useMutation();
+  const approveMutation = trpc.clientPortal.approve.useMutation();
+  const requestRevisionMutation = trpc.clientPortal.requestRevision.useMutation();
 
   const handleApprove = async () => {
     try {

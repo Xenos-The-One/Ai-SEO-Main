@@ -29,6 +29,7 @@ import {
   DollarSign,
   AlertCircle,
   UserPlus,
+  KeyRound,
   Copy,
   Trash2,
   Palette,
@@ -707,9 +708,53 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
   const [inviteRole, setInviteRole] = useState<"client_admin" | "client_viewer">("client_viewer");
   const [lastInvitation, setLastInvitation] = useState<any>(null);
 
+  const [showDirectDialog, setShowDirectDialog] = useState(false);
+  const [directEmail, setDirectEmail] = useState("");
+  const [directName, setDirectName] = useState("");
+  const [directPassword, setDirectPassword] = useState("");
+  const [directRole, setDirectRole] = useState<"client_admin" | "client_viewer">("client_admin");
+
   const { data: portalUsers, refetch } = trpc.clientPortal.listUsers.useQuery({ clientId });
   const createInvitationMutation = trpc.clientPortal.createInvitation.useMutation();
   const deactivateUserMutation = trpc.clientPortal.deactivateUser.useMutation();
+  const createDirectLoginMutation = trpc.clientPortal.createDirectLogin.useMutation();
+  const openAsClientMutation = trpc.clientPortal.openAsClient.useMutation();
+
+  const handleCreateDirectLogin = async () => {
+    if (!directEmail || !directName || directPassword.length < 8) {
+      toast.error("Fill in name, email, and a password of at least 8 characters");
+      return;
+    }
+    try {
+      await createDirectLoginMutation.mutateAsync({
+        clientId,
+        email: directEmail,
+        name: directName,
+        password: directPassword,
+        role: directRole,
+      });
+      toast.success(`Portal login created for ${directEmail}`);
+      setDirectEmail("");
+      setDirectName("");
+      setDirectPassword("");
+      setShowDirectDialog(false);
+      refetch();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create login");
+    }
+  };
+
+  const handleOpenPortal = async () => {
+    try {
+      const result = await openAsClientMutation.mutateAsync({ clientId });
+      // Seed the portal session for this browser, then open the portal.
+      localStorage.setItem("client_portal_token", result.token);
+      localStorage.setItem("client_portal_user", JSON.stringify(result.user));
+      window.open("/portal/dashboard", "_blank");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to open portal");
+    }
+  };
 
   const handleSendInvitation = async () => {
     if (!inviteEmail || !inviteName) {
@@ -771,10 +816,20 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
                 Invite {clientName} team members to access their content portal
               </p>
             </div>
-            <Button onClick={() => setShowInviteDialog(true)}>
-              <UserPlus className="h-4 w-4 mr-2" />
-              Invite User
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleOpenPortal} disabled={openAsClientMutation.isPending}>
+                <Eye className="h-4 w-4 mr-2" />
+                {openAsClientMutation.isPending ? "Opening…" : "Open Portal"}
+              </Button>
+              <Button variant="outline" onClick={() => setShowDirectDialog(true)}>
+                <KeyRound className="h-4 w-4 mr-2" />
+                Create Login
+              </Button>
+              <Button onClick={() => setShowInviteDialog(true)}>
+                <UserPlus className="h-4 w-4 mr-2" />
+                Invite User
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -883,6 +938,76 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
           )}
         </CardContent>
       </Card>
+
+      {/* Direct Login Dialog */}
+      {showDirectDialog && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Create Portal Login</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Set a password now — the account is active immediately, no invitation needed.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="direct-name">Name</Label>
+                <Input
+                  id="direct-name"
+                  placeholder="John Doe"
+                  value={directName}
+                  onChange={(e) => setDirectName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="direct-email">Email</Label>
+                <Input
+                  id="direct-email"
+                  type="email"
+                  placeholder="john@example.com"
+                  value={directEmail}
+                  onChange={(e) => setDirectEmail(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="direct-password">Password</Label>
+                <Input
+                  id="direct-password"
+                  type="text"
+                  placeholder="At least 8 characters"
+                  value={directPassword}
+                  onChange={(e) => setDirectPassword(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Share these credentials with the client securely.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="direct-role">Role</Label>
+                <select
+                  id="direct-role"
+                  className="w-full px-3 py-2 border rounded-md bg-background"
+                  value={directRole}
+                  onChange={(e) => setDirectRole(e.target.value as "client_admin" | "client_viewer")}
+                >
+                  <option value="client_admin">Admin - Full portal access</option>
+                  <option value="client_viewer">Viewer - Can view and approve content</option>
+                </select>
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button variant="outline" className="flex-1" onClick={() => setShowDirectDialog(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={handleCreateDirectLogin}
+                  disabled={createDirectLoginMutation.isPending}
+                >
+                  {createDirectLoginMutation.isPending ? "Creating..." : "Create Login"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Invite Dialog */}
       {showInviteDialog && (

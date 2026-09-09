@@ -142,6 +142,72 @@ export async function acceptInvitation(token: string, newPassword: string) {
 }
 
 /**
+ * Create an active portal login directly (no invitation round-trip). The agency owner sets
+ * the email + password and the account is usable immediately. Used from the Portal Access tab.
+ */
+export async function createDirectPortalUser(
+  clientId: number,
+  email: string,
+  name: string,
+  password: string,
+  role: "client_admin" | "client_viewer" = "client_admin"
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db.select()
+    .from(clientPortalUsers)
+    .where(eq(clientPortalUsers.email, email))
+    .limit(1);
+  if (existing.length > 0) {
+    throw new Error("A portal user with this email already exists");
+  }
+
+  const passwordHash = await hashPassword(password);
+  const [result] = await db.insert(clientPortalUsers).values({
+    clientId,
+    email,
+    name,
+    role,
+    passwordHash,
+    isActive: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }).returning({ id: clientPortalUsers.id });
+
+  return { id: result.id, email, name, role };
+}
+
+/**
+ * Mint a portal session token for the agency owner to view a client's portal without the
+ * client's password. The token carries `userId: 0` (no backing portal-user row) — portal
+ * endpoints authorize by the signed `clientId`, so read/approve actions still scope correctly.
+ */
+export function createPortalImpersonationToken(clientId: number, clientName: string) {
+  const token = jwt.sign(
+    {
+      userId: 0,
+      clientId,
+      email: "owner-preview@portal",
+      role: "client_admin",
+      type: "client_portal",
+    },
+    getJwtSecret(),
+    { expiresIn: "1d" }
+  );
+  return {
+    token,
+    user: {
+      id: 0,
+      clientId,
+      email: "owner-preview@portal",
+      name: `${clientName} (preview)`,
+      role: "client_admin",
+    },
+  };
+}
+
+/**
  * Login client portal user
  */
 export async function loginClientPortalUser(email: string, password: string) {
