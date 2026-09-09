@@ -45,6 +45,7 @@ export default function ContentDetail() {
   const [contentText, setContentText] = useState("");
   const [status, setStatus] = useState<"draft" | "in_progress" | "approved">("draft");
   const [progress, setProgress] = useState(0);
+  const [publishedUrl, setPublishedUrl] = useState("");
 
   useEffect(() => {
     if (content) {
@@ -52,6 +53,7 @@ export default function ContentDetail() {
       setContentText(content.content);
       setStatus(content.status);
       setProgress(content.progress);
+      setPublishedUrl((content as any).publishedUrl || "");
     }
   }, [content]);
 
@@ -63,6 +65,7 @@ export default function ContentDetail() {
         content: contentText,
         status,
         progress,
+        publishedUrl,
       });
       toast.success("Content saved successfully");
       refetch();
@@ -351,6 +354,19 @@ export default function ContentDetail() {
                   onChange={(e) => setProgress(parseInt(e.target.value))}
                   className="mt-2"
                 />
+              </div>
+              <div>
+                <Label htmlFor="publishedUrl">Published URL</Label>
+                <Input
+                  id="publishedUrl"
+                  value={publishedUrl}
+                  onChange={(e) => setPublishedUrl(e.target.value)}
+                  placeholder="https://client-site.com/blog/post-slug"
+                  className="mt-2"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  The live page URL — used to match Google Analytics traffic to this content.
+                </p>
               </div>
             </CardContent>
           </Card>

@@ -387,6 +387,7 @@ export const appRouter = router({
         status: z.enum(["draft", "in_progress", "approved"]).optional(),
         progress: z.number().min(0).max(100).optional(),
         scheduledPublishDate: z.string().optional(),
+        publishedUrl: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, scheduledPublishDate, ...updates } = input;

@@ -1081,6 +1081,21 @@ function AnalyticsTab({ clientId }: { clientId: number }) {
   const { data: connection, refetch } = trpc.googleAnalytics.get.useQuery({ clientId });
   const upsertMutation = trpc.googleAnalytics.upsert.useMutation();
   const deleteMutation = trpc.googleAnalytics.delete.useMutation();
+  const syncMutation = trpc.googleAnalytics.sync.useMutation();
+
+  const handleSync = async () => {
+    try {
+      const result = await syncMutation.mutateAsync({ clientId });
+      if (result.success) {
+        toast.success(result.message || "Synced from Google Analytics");
+      } else {
+        toast.error(result.message || "Sync failed");
+      }
+      refetch();
+    } catch (error: any) {
+      toast.error(error.message || "Sync failed");
+    }
+  };
   
   const [formData, setFormData] = useState({
     propertyId: "",
@@ -1205,6 +1220,19 @@ function AnalyticsTab({ clientId }: { clientId: number }) {
                 <><Save className="h-4 w-4 mr-2" /> Save Connection</>
               )}
             </Button>
+            {connection && (
+              <Button
+                variant="outline"
+                onClick={handleSync}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Syncing...</>
+                ) : (
+                  <><BarChart className="h-4 w-4 mr-2" /> Sync from GA</>
+                )}
+              </Button>
+            )}
             {connection && (
               <Button
                 variant="destructive"

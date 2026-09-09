@@ -50,6 +50,13 @@
       "when": 1788978746212,
       "tag": "0006_striped_professor_monster",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788979421146,
+      "tag": "0007_normal_darkhawk",
+      "breakpoints": true
     }
   ]
 }

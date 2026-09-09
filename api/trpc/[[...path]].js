@@ -208,6 +208,8 @@ var init_schema = __esm({
       content: text("content").notNull(),
       imageUrl: text("imageUrl"),
       imagePrompt: text("imagePrompt"),
+      publishedUrl: varchar("publishedUrl", { length: 500 }),
+      // live URL, used to match Google Analytics page paths
       // Status and workflow
       status: text("status", { enum: ["draft", "in_progress", "approved"] }).default("draft").notNull(),
       progress: integer("progress").default(0).notNull(),
@@ -2859,7 +2861,7 @@ __export(performanceTracking_exports, {
   trackContentView: () => trackContentView,
   updatePerformanceMetrics: () => updatePerformanceMetrics
 });
-import { eq as eq18, desc as desc8, and as and14, gte as gte5 } from "drizzle-orm";
+import { eq as eq18, desc as desc8, and as and14, gte as gte4 } from "drizzle-orm";
 async function updatePerformanceMetrics(metrics) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
@@ -2988,7 +2990,7 @@ async function getPerformanceTrends(days = 30, userId) {
     views: contentAnalytics.views,
     clicks: contentAnalytics.clicks,
     recordedAt: contentAnalytics.recordedAt
-  }).from(contentAnalytics).innerJoin(content, eq18(contentAnalytics.contentId, content.id)).where(and14(gte5(contentAnalytics.recordedAt, since), eq18(content.createdBy, userId))).orderBy(desc8(contentAnalytics.recordedAt));
+  }).from(contentAnalytics).innerJoin(content, eq18(contentAnalytics.contentId, content.id)).where(and14(gte4(contentAnalytics.recordedAt, since), eq18(content.createdBy, userId))).orderBy(desc8(contentAnalytics.recordedAt));
   return recentAnalytics;
 }
 var init_performanceTracking = __esm({
@@ -3019,7 +3021,7 @@ __export(clientPortalAuth_exports, {
 import { eq as eq19 } from "drizzle-orm";
 import * as crypto2 from "crypto";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import jwt2 from "jsonwebtoken";
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -3118,7 +3120,7 @@ async function createDirectPortalUser(clientId, email, name, password, role = "c
   return { id: result.id, email, name, role };
 }
 function createPortalImpersonationToken(clientId, clientName) {
-  const token = jwt.sign(
+  const token = jwt2.sign(
     {
       userId: 0,
       clientId,
@@ -3158,7 +3160,7 @@ async function loginClientPortalUser(email, password) {
     await db6.update(clientPortalUsers).set({ passwordHash: upgraded }).where(eq19(clientPortalUsers.id, user.id));
   }
   await db6.update(clientPortalUsers).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where(eq19(clientPortalUsers.id, user.id));
-  const token = jwt.sign(
+  const token = jwt2.sign(
     {
       userId: user.id,
       clientId: user.clientId,
@@ -3182,7 +3184,7 @@ async function loginClientPortalUser(email, password) {
 }
 function verifyClientPortalToken(token) {
   try {
-    const decoded = jwt.verify(token, getJwtSecret());
+    const decoded = jwt2.verify(token, getJwtSecret());
     if (decoded.type !== "client_portal") {
       throw new Error("Invalid token type");
     }
@@ -3275,7 +3277,7 @@ __export(clientPortalData_exports, {
   portalRequestRevision: () => portalRequestRevision,
   providerLabel: () => providerLabel
 });
-import { and as and16, asc as asc3, desc as desc9, eq as eq20, inArray as inArray3, sql as sql6 } from "drizzle-orm";
+import { and as and16, asc as asc3, desc as desc9, eq as eq20, inArray as inArray3, sql as sql5 } from "drizzle-orm";
 async function db5() {
   const d = await getDb();
   if (!d) throw new Error("Database not available");
@@ -3393,7 +3395,7 @@ async function getPortalContentAnalytics(clientId) {
   let aiCitationsEarned = 0;
   const brandId = await findClientBrandId(clientId);
   if (brandId != null) {
-    const [m] = await d.select({ n: sql6`count(*)` }).from(aiVisibilityResults).where(and16(eq20(aiVisibilityResults.brandId, brandId), eq20(aiVisibilityResults.mentioned, 1)));
+    const [m] = await d.select({ n: sql5`count(*)` }).from(aiVisibilityResults).where(and16(eq20(aiVisibilityResults.brandId, brandId), eq20(aiVisibilityResults.mentioned, 1)));
     aiCitationsEarned = Number(m?.n ?? 0);
   }
   empty.aiCitationsEarned = aiCitationsEarned;
@@ -5771,6 +5773,12 @@ import { eq as eq9 } from "drizzle-orm";
 init_db();
 init_schema();
 import { eq as eq8, and as and4 } from "drizzle-orm";
+import jwt from "jsonwebtoken";
+var GA_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
+var TOKEN_URL = "https://oauth2.googleapis.com/token";
+function normalizePropertyId(propertyId) {
+  return propertyId.trim().replace(/^properties\//, "");
+}
 async function getGAConnection(clientId) {
   const db6 = await getDb();
   if (!db6) return null;
@@ -5782,109 +5790,180 @@ async function getGAConnection(clientId) {
   ).limit(1);
   return connections[0] || null;
 }
+async function getAccessToken(serviceAccountKey) {
+  let parsed;
+  try {
+    parsed = JSON.parse(serviceAccountKey);
+  } catch {
+    throw new Error("Service account key is not valid JSON. Paste the full JSON key file.");
+  }
+  const { client_email, private_key } = parsed;
+  if (!client_email || !private_key) {
+    throw new Error("Service account key is missing client_email or private_key.");
+  }
+  const now = Math.floor(Date.now() / 1e3);
+  const assertion = jwt.sign(
+    { scope: GA_SCOPE, aud: TOKEN_URL, iss: client_email, iat: now, exp: now + 3600 },
+    private_key,
+    { algorithm: "RS256" }
+  );
+  const res = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion
+    })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Google token exchange failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  const json = await res.json();
+  if (!json.access_token) throw new Error("Google token response had no access_token.");
+  return json.access_token;
+}
+async function runReport(propertyId, accessToken, body) {
+  const res = await fetch(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${normalizePropertyId(propertyId)}:runReport`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    }
+  );
+  if (!res.ok) {
+    const text2 = await res.text();
+    throw new Error(`GA4 runReport failed (${res.status}): ${text2.slice(0, 300)}`);
+  }
+  return res.json();
+}
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 async function fetchGAMetrics(clientId, startDate, endDate) {
   const connection = await getGAConnection(clientId);
-  if (!connection || !connection.propertyId) {
-    return null;
-  }
-  try {
-    const metrics = {
-      sessions: Math.floor(Math.random() * 1e4) + 1e3,
-      pageviews: Math.floor(Math.random() * 5e4) + 5e3,
-      users: Math.floor(Math.random() * 8e3) + 800,
-      bounceRate: Math.random() * 0.5 + 0.3,
-      // 30-80%
-      avgSessionDuration: Math.floor(Math.random() * 300) + 60
-      // 60-360 seconds
-    };
-    return metrics;
-  } catch (error) {
-    console.error("Error fetching GA metrics:", error);
-    return null;
-  }
+  if (!connection?.propertyId || !connection.serviceAccountKey) return null;
+  const token = await getAccessToken(connection.serviceAccountKey);
+  const data = await runReport(connection.propertyId, token, {
+    dateRanges: [{ startDate, endDate }],
+    metrics: [
+      { name: "sessions" },
+      { name: "screenPageViews" },
+      { name: "totalUsers" },
+      { name: "bounceRate" },
+      { name: "averageSessionDuration" }
+    ]
+  });
+  const row = data.rows?.[0];
+  const m = (i) => num(row?.metricValues?.[i]?.value);
+  return {
+    sessions: m(0),
+    pageviews: m(1),
+    users: m(2),
+    bounceRate: m(3),
+    avgSessionDuration: m(4)
+  };
 }
 async function fetchGAPageMetrics(clientId, startDate, endDate, limit = 10) {
   const connection = await getGAConnection(clientId);
-  if (!connection || !connection.propertyId) {
-    return [];
-  }
+  if (!connection?.propertyId || !connection.serviceAccountKey) return [];
+  const token = await getAccessToken(connection.serviceAccountKey);
+  const data = await runReport(connection.propertyId, token, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: "pagePath" }],
+    metrics: [
+      { name: "screenPageViews" },
+      { name: "totalUsers" },
+      { name: "averageSessionDuration" },
+      { name: "engagementRate" }
+    ],
+    orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
+    limit
+  });
+  return (data.rows ?? []).map((r) => ({
+    pagePath: r.dimensionValues?.[0]?.value ?? "",
+    pageviews: num(r.metricValues?.[0]?.value),
+    users: num(r.metricValues?.[1]?.value),
+    avgTimeOnPage: num(r.metricValues?.[2]?.value),
+    engagementRate: num(r.metricValues?.[3]?.value)
+  }));
+}
+async function fetchKeywordData(_clientId, _startDate, _endDate, _limit = 20) {
+  return [];
+}
+function slugify2(title) {
+  return title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+function pathOf(url) {
   try {
-    const pages = [];
-    for (let i = 0; i < limit; i++) {
-      pages.push({
-        pagePath: `/blog/article-${i + 1}`,
-        pageviews: Math.floor(Math.random() * 5e3) + 100,
-        users: Math.floor(Math.random() * 3e3) + 50,
-        avgTimeOnPage: Math.floor(Math.random() * 180) + 30
-      });
-    }
-    return pages;
-  } catch (error) {
-    console.error("Error fetching GA page metrics:", error);
-    return [];
+    return new URL(url).pathname.replace(/\/+$/, "").toLowerCase() || "/";
+  } catch {
+    return url.replace(/\/+$/, "").toLowerCase();
   }
 }
-async function fetchKeywordData(clientId, startDate, endDate, limit = 20) {
-  const connection = await getGAConnection(clientId);
-  if (!connection) {
-    return [];
+function matchPage(item, pages) {
+  if (item.publishedUrl) {
+    const target = pathOf(item.publishedUrl);
+    const exact = pages.find((p) => pathOf(p.pagePath) === target);
+    if (exact) return exact;
   }
-  try {
-    const keywords = [];
-    const sampleKeywords = [
-      "content marketing",
-      "SEO strategy",
-      "blog writing tips",
-      "digital marketing",
-      "social media management",
-      "email marketing",
-      "content calendar",
-      "keyword research",
-      "link building",
-      "on-page SEO"
-    ];
-    for (let i = 0; i < Math.min(limit, sampleKeywords.length); i++) {
-      const impressions = Math.floor(Math.random() * 1e4) + 500;
-      const clicks = Math.floor(impressions * (Math.random() * 0.1 + 0.02));
-      keywords.push({
-        keyword: sampleKeywords[i],
-        clicks,
-        impressions,
-        ctr: clicks / impressions,
-        position: Math.random() * 20 + 1
-        // Position 1-21
-      });
-    }
-    return keywords.sort((a, b) => b.clicks - a.clicks);
-  } catch (error) {
-    console.error("Error fetching keyword data:", error);
-    return [];
+  const slug = slugify2(item.title);
+  if (slug.length >= 3) {
+    const bySlug = pages.find((p) => p.pagePath.toLowerCase().includes(slug));
+    if (bySlug) return bySlug;
   }
+  return null;
 }
 async function syncContentPerformance(clientId) {
   const connection = await getGAConnection(clientId);
-  if (!connection) {
-    return { success: false, message: "No GA connection found" };
+  if (!connection) return { success: false, message: "No GA connection found" };
+  if (!connection.serviceAccountKey) {
+    return { success: false, message: "This connection has no service account key. Add the JSON key and save." };
   }
+  const db6 = await getDb();
+  if (!db6) return { success: false, message: "Database not available" };
+  const clientContent = await db6.select({ id: content.id, title: content.title, publishedUrl: content.publishedUrl }).from(content).where(eq8(content.clientId, clientId));
+  if (clientContent.length === 0) {
+    return { success: false, message: "This client has no content to sync." };
+  }
+  const endDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1e3).toISOString().split("T")[0];
+  let pages;
   try {
-    const db6 = await getDb();
-    if (!db6) return { success: false, message: "Database not available" };
-    const clientContent = await db6.select().from(content).where(
-      and4(
-        eq8(content.clientId, clientId),
-        eq8(content.status, "approved")
-        // Using 'approved' status as closest to published
-      )
-    );
-    await db6.update(googleAnalyticsConnections).set({ lastSyncedAt: /* @__PURE__ */ new Date() }).where(eq8(googleAnalyticsConnections.id, connection.id));
-    return {
-      success: true,
-      message: `Synced performance data for ${clientContent.length} content items`
-    };
+    pages = await fetchGAPageMetrics(clientId, startDate, endDate, 500);
   } catch (error) {
-    console.error("Error syncing content performance:", error);
-    return { success: false, message: "Sync failed" };
+    return { success: false, message: error?.message || "Failed to fetch GA page metrics" };
   }
+  let matched = 0;
+  const now = /* @__PURE__ */ new Date();
+  for (const item of clientContent) {
+    const page = matchPage(item, pages);
+    if (!page) continue;
+    matched += 1;
+    await db6.insert(contentAnalytics).values({
+      contentId: item.id,
+      views: Math.round(page.pageviews),
+      clicks: 0,
+      shares: 0,
+      engagementRate: Math.round(page.engagementRate * 100),
+      avgTimeOnPage: Math.round(page.avgTimeOnPage),
+      conversions: 0,
+      recordedAt: now
+    });
+  }
+  await db6.update(googleAnalyticsConnections).set({ lastSyncedAt: now }).where(eq8(googleAnalyticsConnections.id, connection.id));
+  return {
+    success: true,
+    matched,
+    totalContent: clientContent.length,
+    totalPages: pages.length,
+    message: matched === 0 ? `Fetched ${pages.length} GA pages but matched none to content. Set each piece's Published URL to match its live page.` : `Synced GA performance for ${matched} of ${clientContent.length} content pieces.`
+  };
 }
 
 // server/routers/googleAnalytics.ts
@@ -6475,16 +6554,16 @@ var bulkPublishingRouter = router({
 init_db();
 init_schema();
 import { z as z20 } from "zod";
-import { and as and9, eq as eq13, desc as desc4, gte as gte3, sql as sql4 } from "drizzle-orm";
+import { and as and9, eq as eq13, desc as desc4, gte as gte2, sql as sql3 } from "drizzle-orm";
 var publishingAnalyticsRouter = router({
   // Get overall publishing statistics
   getOverallStats: protectedProcedure.query(async ({ ctx }) => {
     const db6 = await getDb();
     if (!db6) throw new Error("Database not available");
     const [wpStats] = await db6.select({
-      total: sql4`COUNT(*)`,
-      successful: sql4`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END)`,
-      failed: sql4`SUM(CASE WHEN ${wordpressPublishHistory.success} = 0 THEN 1 ELSE 0 END)`
+      total: sql3`COUNT(*)`,
+      successful: sql3`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END)`,
+      failed: sql3`SUM(CASE WHEN ${wordpressPublishHistory.success} = 0 THEN 1 ELSE 0 END)`
     }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).where(eq13(content.createdBy, ctx.user.id));
     return {
       wordpress: {
@@ -6507,7 +6586,7 @@ var publishingAnalyticsRouter = router({
     if (!db6) throw new Error("Database not available");
     const wpHistory = await db6.select({
       id: wordpressPublishHistory.id,
-      platform: sql4`'wordpress'`,
+      platform: sql3`'wordpress'`,
       siteName: wordpressConnections.siteName,
       url: wordpressPublishHistory.wordpressPostUrl,
       success: wordpressPublishHistory.success,
@@ -6523,13 +6602,13 @@ var publishingAnalyticsRouter = router({
     const topContent = await db6.select({
       contentId: content.id,
       title: content.title,
-      wpPublishCount: sql4`(
+      wpPublishCount: sql3`(
             SELECT COUNT(*)
             FROM ${wordpressPublishHistory}
             WHERE ${wordpressPublishHistory.contentId} = ${content.id}
             AND ${wordpressPublishHistory.success} = 1
           )`
-    }).from(content).where(eq13(content.createdBy, ctx.user.id)).orderBy(sql4`(
+    }).from(content).where(eq13(content.createdBy, ctx.user.id)).orderBy(sql3`(
           SELECT COUNT(*) FROM ${wordpressPublishHistory} WHERE ${wordpressPublishHistory.contentId} = ${content.id} AND ${wordpressPublishHistory.success} = 1
         ) DESC`).limit(input.limit);
     return topContent.map((item) => ({
@@ -6543,7 +6622,7 @@ var publishingAnalyticsRouter = router({
     if (!db6) throw new Error("Database not available");
     const wpActivity = await db6.select({
       id: wordpressPublishHistory.id,
-      platform: sql4`'wordpress'`,
+      platform: sql3`'wordpress'`,
       contentTitle: content.title,
       siteName: wordpressConnections.siteName,
       url: wordpressPublishHistory.wordpressPostUrl,
@@ -6559,10 +6638,10 @@ var publishingAnalyticsRouter = router({
     const thirtyDaysAgo = /* @__PURE__ */ new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const wpTrends = await db6.select({
-      date: sql4`DATE(${wordpressPublishHistory.publishedAt}) as date`,
-      count: sql4`COUNT(*) as count`,
-      successful: sql4`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END) as successful`
-    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).where(and9(gte3(wordpressPublishHistory.publishedAt, thirtyDaysAgo), eq13(content.createdBy, ctx.user.id))).groupBy(sql4`date`).orderBy(sql4`date`);
+      date: sql3`DATE(${wordpressPublishHistory.publishedAt}) as date`,
+      count: sql3`COUNT(*) as count`,
+      successful: sql3`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END) as successful`
+    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).where(and9(gte2(wordpressPublishHistory.publishedAt, thirtyDaysAgo), eq13(content.createdBy, ctx.user.id))).groupBy(sql3`date`).orderBy(sql3`date`);
     return {
       wordpress: wpTrends
     };
@@ -7159,7 +7238,8 @@ var appRouter = router({
       content: z24.string().optional(),
       status: z24.enum(["draft", "in_progress", "approved"]).optional(),
       progress: z24.number().min(0).max(100).optional(),
-      scheduledPublishDate: z24.string().optional()
+      scheduledPublishDate: z24.string().optional(),
+      publishedUrl: z24.string().optional()
     })).mutation(async ({ ctx, input }) => {
       const { id, scheduledPublishDate, ...updates } = input;
       await assertContent(ctx.user.id, id);

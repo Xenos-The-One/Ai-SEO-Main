@@ -153,7 +153,8 @@ export const content = pgTable("content", {
   content: text("content").notNull(),
   imageUrl: text("imageUrl"),
   imagePrompt: text("imagePrompt"),
-  
+  publishedUrl: varchar("publishedUrl", { length: 500 }), // live URL, used to match Google Analytics page paths
+
   // Status and workflow
   status: text("status", { enum: ["draft", "in_progress", "approved"] }).default("draft").notNull(),
   progress: integer("progress").default(0).notNull(), // 0-100
