@@ -43,6 +43,13 @@
       "when": 1788459136595,
       "tag": "0005_aspiring_risque",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788978746212,
+      "tag": "0006_striped_professor_monster",
+      "breakpoints": true
     }
   ]
 }

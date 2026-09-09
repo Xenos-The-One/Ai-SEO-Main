@@ -14,6 +14,8 @@ import {
   CalendarDays,
   Trophy,
   Search,
+  FileText,
+  Eye,
 } from "lucide-react";
 import {
   BarChart,
@@ -52,6 +54,7 @@ export default function PortalPerformance() {
   }, [setLocation]);
 
   const { data, isLoading } = trpc.clientPortal.performance.useQuery(undefined, { enabled: !!user });
+  const { data: contentPerf } = trpc.clientPortal.contentAnalytics.useQuery(undefined, { enabled: !!user });
 
   if (!user || isLoading) {
     return <div className="min-h-screen flex items-center justify-center text-muted-foreground animate-pulse">Loading…</div>;
@@ -264,6 +267,116 @@ export default function PortalPerformance() {
             )}
           </CardContent>
         </Card>
+
+        {/* Content Performance Analytics */}
+        <div className="pt-2">
+          <div className="flex items-center gap-2 mb-1">
+            <FileText className="h-5 w-5" />
+            <h2 className="text-lg font-semibold">Content Performance Analytics</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-4">How your blogs, newsletters &amp; social posts are performing</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <StatCard label="Content Pieces" value={String(contentPerf?.totalPieces ?? 0)} icon={<FileText className="h-5 w-5" />} />
+            <StatCard label="Total Views" value={(contentPerf?.totalViews ?? 0).toLocaleString()} icon={<Eye className="h-5 w-5" />} />
+            <StatCard label="Avg Engagement" value={`${contentPerf?.avgEngagement ?? 0}%`} icon={<TrendingUp className="h-5 w-5" />} />
+            <StatCard label="AI Citations Earned" value={String(contentPerf?.aiCitationsEarned ?? 0)} icon={<Sparkles className="h-5 w-5" />} />
+          </div>
+
+          {!contentPerf?.hasData ? (
+            <Card className="border-dashed">
+              <CardContent className="pt-6 text-center py-10 text-muted-foreground">
+                <FileText className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                <p className="font-medium text-foreground">No content performance data yet</p>
+                <p className="text-sm mt-1">
+                  Views and engagement appear here once analytics are recorded for this client's content
+                  (via the Google Analytics connection or tracked publishing).
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Performance by Type</CardTitle>
+                    <p className="text-xs text-muted-foreground">Views per channel</p>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={contentPerf.byType as any[]}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="type" fontSize={12} tickFormatter={(t) => String(t).charAt(0).toUpperCase() + String(t).slice(1)} />
+                        <YAxis fontSize={12} />
+                        <Tooltip />
+                        <Bar dataKey="views" name="Views" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Top Performing Content</CardTitle>
+                    <p className="text-xs text-muted-foreground">Your highest-viewed pieces</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {contentPerf.library.slice(0, 5).map((c, i) => (
+                      <div key={c.id} className="flex items-center gap-3">
+                        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-muted text-sm font-medium">{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{c.title}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{c.type}</p>
+                        </div>
+                        <div className="text-right text-sm">
+                          <span className="font-medium">{c.views.toLocaleString()}</span>
+                          <span className="text-muted-foreground"> views</span>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Content Library</CardTitle>
+                  <p className="text-xs text-muted-foreground">All content with live performance metrics</p>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground border-b">
+                          <th className="py-2 pr-4 font-medium">Title</th>
+                          <th className="py-2 pr-4 font-medium">Type</th>
+                          <th className="py-2 pr-4 font-medium">Published</th>
+                          <th className="py-2 pr-4 font-medium">Views</th>
+                          <th className="py-2 pr-4 font-medium">Engage</th>
+                          <th className="py-2 pr-4 font-medium">Conv.</th>
+                          <th className="py-2 pr-4 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {contentPerf.library.map((c) => (
+                          <tr key={c.id} className="border-b last:border-0">
+                            <td className="py-3 pr-4 font-medium">{c.title}</td>
+                            <td className="py-3 pr-4 capitalize">{c.type}</td>
+                            <td className="py-3 pr-4 text-muted-foreground">{new Date(c.publishedAt).toLocaleDateString()}</td>
+                            <td className="py-3 pr-4">{c.views.toLocaleString()}</td>
+                            <td className="py-3 pr-4">{c.engagement}%</td>
+                            <td className="py-3 pr-4">{c.conversions}</td>
+                            <td className="py-3 pr-4 capitalize">{c.status.replace("_", " ")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
 
         {/* Verified AI citations */}
         {perf.citations.length > 0 && (

@@ -3264,6 +3264,7 @@ __export(clientPortalData_exports, {
   addPortalFeedback: () => addPortalFeedback,
   getFeedbackForContent: () => getFeedbackForContent,
   getPortalBranding: () => getPortalBranding2,
+  getPortalContentAnalytics: () => getPortalContentAnalytics,
   getPortalContentById: () => getPortalContentById,
   getPortalContentList: () => getPortalContentList,
   getPortalFeedback: () => getPortalFeedback,
@@ -3274,7 +3275,7 @@ __export(clientPortalData_exports, {
   portalRequestRevision: () => portalRequestRevision,
   providerLabel: () => providerLabel
 });
-import { and as and16, asc as asc3, desc as desc9, eq as eq20, inArray as inArray3 } from "drizzle-orm";
+import { and as and16, asc as asc3, desc as desc9, eq as eq20, inArray as inArray3, sql as sql6 } from "drizzle-orm";
 async function db5() {
   const d = await getDb();
   if (!d) throw new Error("Database not available");
@@ -3360,6 +3361,93 @@ async function addPortalFeedback(clientId, userId, email, contentId, note) {
   const [row] = await d.insert(portalFeedback).values({ contentId, clientId, authorName, authorEmail: email, note }).returning();
   return row;
 }
+async function findClientBrandId(clientId) {
+  const d = await db5();
+  const [client] = await d.select({ createdBy: clients.createdBy, websiteUrl: clients.websiteUrl, businessWebsite: clients.businessWebsite }).from(clients).where(eq20(clients.id, clientId)).limit(1);
+  if (!client) return null;
+  const domainSource = client.websiteUrl || client.businessWebsite || "";
+  if (!domainSource) return null;
+  const clientDomain2 = normalizeDomain(domainSource);
+  const brands = await d.select({ id: aiBrands.id, domain: aiBrands.domain }).from(aiBrands).where(eq20(aiBrands.createdBy, client.createdBy));
+  const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain2);
+  return match?.id ?? null;
+}
+async function getPortalContentAnalytics(clientId) {
+  const d = await db5();
+  const rows = await d.select({
+    id: content.id,
+    title: content.title,
+    contentType: content.contentType,
+    status: content.status,
+    createdAt: content.createdAt
+  }).from(content).where(eq20(content.clientId, clientId));
+  const empty = {
+    hasData: false,
+    totalPieces: rows.length,
+    totalViews: 0,
+    avgEngagement: 0,
+    aiCitationsEarned: 0,
+    byType: [],
+    library: []
+  };
+  let aiCitationsEarned = 0;
+  const brandId = await findClientBrandId(clientId);
+  if (brandId != null) {
+    const [m] = await d.select({ n: sql6`count(*)` }).from(aiVisibilityResults).where(and16(eq20(aiVisibilityResults.brandId, brandId), eq20(aiVisibilityResults.mentioned, 1)));
+    aiCitationsEarned = Number(m?.n ?? 0);
+  }
+  empty.aiCitationsEarned = aiCitationsEarned;
+  if (rows.length === 0) return empty;
+  const ids = rows.map((r) => r.id);
+  const analytics = await d.select().from(contentAnalytics).where(inArray3(contentAnalytics.contentId, ids)).orderBy(desc9(contentAnalytics.recordedAt));
+  if (analytics.length === 0) return empty;
+  const latest = /* @__PURE__ */ new Map();
+  for (const a of analytics) if (!latest.has(a.contentId)) latest.set(a.contentId, a);
+  let totalViews = 0;
+  let engSum = 0;
+  let engCount = 0;
+  const byType = /* @__PURE__ */ new Map();
+  const library = rows.map((r) => {
+    const a = latest.get(r.id);
+    const views = a?.views ?? 0;
+    const engagement = a?.engagementRate ?? 0;
+    const conversions = a?.conversions ?? 0;
+    totalViews += views;
+    if (a) {
+      engSum += engagement;
+      engCount += 1;
+      const t2 = byType.get(r.contentType) ?? { views: 0, engSum: 0, count: 0 };
+      t2.views += views;
+      t2.engSum += engagement;
+      t2.count += 1;
+      byType.set(r.contentType, t2);
+    }
+    return {
+      id: r.id,
+      title: r.title,
+      type: r.contentType,
+      status: r.status,
+      publishedAt: r.createdAt,
+      views,
+      engagement,
+      conversions
+    };
+  });
+  library.sort((a, b) => b.views - a.views);
+  return {
+    hasData: true,
+    totalPieces: rows.length,
+    totalViews,
+    avgEngagement: engCount > 0 ? Math.round(engSum / engCount * 10) / 10 : 0,
+    aiCitationsEarned,
+    byType: Array.from(byType.entries()).map(([type, t2]) => ({
+      type,
+      views: t2.views,
+      engagement: t2.count > 0 ? Math.round(t2.engSum / t2.count * 10) / 10 : 0
+    })),
+    library
+  };
+}
 async function getPortalPerformance(clientId) {
   const d = await db5();
   const [client] = await d.select().from(clients).where(eq20(clients.id, clientId)).limit(1);
@@ -3377,14 +3465,7 @@ async function getPortalPerformance(clientId) {
     onboardedAt,
     monthsActive
   };
-  const domainSource = client.websiteUrl || client.businessWebsite || "";
-  const clientDomain2 = domainSource ? normalizeDomain(domainSource) : "";
-  let brandId = null;
-  if (clientDomain2) {
-    const brands = await d.select({ id: aiBrands.id, domain: aiBrands.domain }).from(aiBrands).where(eq20(aiBrands.createdBy, client.createdBy));
-    const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain2);
-    brandId = match?.id ?? null;
-  }
+  const brandId = await findClientBrandId(clientId);
   let aiVisibility = emptyAiVisibility();
   if (brandId != null) {
     aiVisibility = await buildAiVisibility(brandId);
@@ -3397,7 +3478,8 @@ async function getPortalPerformance(clientId) {
     visibilityScore: aiVisibility.visibilityScore,
     bestRank: aiVisibility.bestRank,
     topEngine: aiVisibility.topEngine,
-    citationStatus: aiVisibility.hasAiData ? "verified" : "none",
+    // "verified" only when the brand was actually cited by an engine, not merely scanned.
+    citationStatus: aiVisibility.citations.length > 0 ? "verified" : "none",
     engines: aiVisibility.engines,
     rankProgression: aiVisibility.rankProgression,
     startVsCurrent: aiVisibility.startVsCurrent,
@@ -7427,6 +7509,10 @@ You can now publish this content to the client's CMS via the Publishing page.`
     performance: portalProcedure.query(async ({ ctx }) => {
       const { getPortalPerformance: getPortalPerformance2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalPerformance2(ctx.portalUser.clientId);
+    }),
+    contentAnalytics: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalContentAnalytics: getPortalContentAnalytics2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalContentAnalytics2(ctx.portalUser.clientId);
     }),
     contentFeedback: portalProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
       const { getPortalFeedback: getPortalFeedback2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));

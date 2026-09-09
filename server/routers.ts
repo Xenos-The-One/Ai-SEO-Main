@@ -834,6 +834,11 @@ export const appRouter = router({
       return getPortalPerformance(ctx.portalUser.clientId);
     }),
 
+    contentAnalytics: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalContentAnalytics } = await import("./clientPortalData");
+      return getPortalContentAnalytics(ctx.portalUser.clientId);
+    }),
+
     contentFeedback: portalProcedure
       .input(z.object({ contentId: z.number() }))
       .query(async ({ ctx, input }) => {

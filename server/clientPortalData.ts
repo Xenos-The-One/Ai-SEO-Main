@@ -3,7 +3,7 @@
  * endpoints, so `clientId` comes from a signed client-portal token and is authoritative —
  * these functions never trust a clientId supplied by the caller directly.
  */
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   aiBrands,
@@ -12,6 +12,7 @@ import {
   clientPortalUsers,
   clients,
   content as contentTable,
+  contentAnalytics,
   portalBranding,
   portalFeedback,
   rankSnapshots,
@@ -176,6 +177,132 @@ export async function addPortalFeedback(
 }
 
 /**
+ * Match a client to an AI brand by normalized website domain (same agency owner).
+ * AI brands aren't linked to clients directly, so this is the join. Returns null if none.
+ */
+async function findClientBrandId(clientId: number): Promise<number | null> {
+  const d = await db();
+  const [client] = await d
+    .select({ createdBy: clients.createdBy, websiteUrl: clients.websiteUrl, businessWebsite: clients.businessWebsite })
+    .from(clients)
+    .where(eq(clients.id, clientId))
+    .limit(1);
+  if (!client) return null;
+  const domainSource = client.websiteUrl || client.businessWebsite || "";
+  if (!domainSource) return null;
+  const clientDomain = normalizeDomain(domainSource);
+  const brands = await d
+    .select({ id: aiBrands.id, domain: aiBrands.domain })
+    .from(aiBrands)
+    .where(eq(aiBrands.createdBy, client.createdBy));
+  const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain);
+  return match?.id ?? null;
+}
+
+/**
+ * Content performance analytics for a client: totals, per-type (channel) breakdown, and a
+ * per-piece library. Numbers come from the latest `contentAnalytics` snapshot per content
+ * piece; `hasData` is false until any analytics have been recorded.
+ */
+export async function getPortalContentAnalytics(clientId: number) {
+  const d = await db();
+  const rows = await d
+    .select({
+      id: contentTable.id,
+      title: contentTable.title,
+      contentType: contentTable.contentType,
+      status: contentTable.status,
+      createdAt: contentTable.createdAt,
+    })
+    .from(contentTable)
+    .where(eq(contentTable.clientId, clientId));
+
+  const empty = {
+    hasData: false,
+    totalPieces: rows.length,
+    totalViews: 0,
+    avgEngagement: 0,
+    aiCitationsEarned: 0,
+    byType: [] as { type: string; views: number; engagement: number }[],
+    library: [] as any[],
+  };
+
+  // AI citations earned = mentions across the client's matched brand (if any).
+  let aiCitationsEarned = 0;
+  const brandId = await findClientBrandId(clientId);
+  if (brandId != null) {
+    const [m] = await d
+      .select({ n: sql<number>`count(*)` })
+      .from(aiVisibilityResults)
+      .where(and(eq(aiVisibilityResults.brandId, brandId), eq(aiVisibilityResults.mentioned, 1)));
+    aiCitationsEarned = Number(m?.n ?? 0);
+  }
+  empty.aiCitationsEarned = aiCitationsEarned;
+
+  if (rows.length === 0) return empty;
+
+  const ids = rows.map((r) => r.id);
+  const analytics = await d
+    .select()
+    .from(contentAnalytics)
+    .where(inArray(contentAnalytics.contentId, ids))
+    .orderBy(desc(contentAnalytics.recordedAt));
+
+  if (analytics.length === 0) return empty;
+
+  // Latest snapshot per content piece.
+  const latest = new Map<number, typeof analytics[number]>();
+  for (const a of analytics) if (!latest.has(a.contentId)) latest.set(a.contentId, a);
+
+  let totalViews = 0;
+  let engSum = 0;
+  let engCount = 0;
+  const byType = new Map<string, { views: number; engSum: number; count: number }>();
+  const library = rows.map((r) => {
+    const a = latest.get(r.id);
+    const views = a?.views ?? 0;
+    const engagement = a?.engagementRate ?? 0;
+    const conversions = a?.conversions ?? 0;
+    totalViews += views;
+    if (a) {
+      engSum += engagement;
+      engCount += 1;
+      const t = byType.get(r.contentType) ?? { views: 0, engSum: 0, count: 0 };
+      t.views += views;
+      t.engSum += engagement;
+      t.count += 1;
+      byType.set(r.contentType, t);
+    }
+    return {
+      id: r.id,
+      title: r.title,
+      type: r.contentType,
+      status: r.status,
+      publishedAt: r.createdAt,
+      views,
+      engagement,
+      conversions,
+    };
+  });
+
+  library.sort((a, b) => b.views - a.views);
+
+  return {
+    hasData: true,
+    totalPieces: rows.length,
+    totalViews,
+    avgEngagement: engCount > 0 ? Math.round((engSum / engCount) * 10) / 10 : 0,
+    aiCitationsEarned,
+    byType: Array.from(byType.entries()).map(([type, t]) => ({
+      type,
+      views: t.views,
+      engagement: t.count > 0 ? Math.round((t.engSum / t.count) * 10) / 10 : 0,
+    })),
+    library,
+  };
+}
+
+/**
  * Assemble the AI-visibility + rank-tracking dashboard for a client.
  *
  * AI brands aren't linked to clients directly (they're keyed by domain), so we match the
@@ -203,18 +330,8 @@ export async function getPortalPerformance(clientId: number) {
     monthsActive,
   };
 
-  // --- Match an AI brand by domain (same agency owner) ---
-  const domainSource = client.websiteUrl || client.businessWebsite || "";
-  const clientDomain = domainSource ? normalizeDomain(domainSource) : "";
-  let brandId: number | null = null;
-  if (clientDomain) {
-    const brands = await d
-      .select({ id: aiBrands.id, domain: aiBrands.domain })
-      .from(aiBrands)
-      .where(eq(aiBrands.createdBy, client.createdBy));
-    const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain);
-    brandId = match?.id ?? null;
-  }
+  // Match an AI brand by domain (same agency owner) — brands aren't linked to clients directly.
+  const brandId = await findClientBrandId(clientId);
 
   let aiVisibility = emptyAiVisibility();
   if (brandId != null) {
@@ -230,7 +347,8 @@ export async function getPortalPerformance(clientId: number) {
     visibilityScore: aiVisibility.visibilityScore,
     bestRank: aiVisibility.bestRank,
     topEngine: aiVisibility.topEngine,
-    citationStatus: aiVisibility.hasAiData ? "verified" : "none",
+    // "verified" only when the brand was actually cited by an engine, not merely scanned.
+    citationStatus: aiVisibility.citations.length > 0 ? "verified" : "none",
     engines: aiVisibility.engines,
     rankProgression: aiVisibility.rankProgression,
     startVsCurrent: aiVisibility.startVsCurrent,
