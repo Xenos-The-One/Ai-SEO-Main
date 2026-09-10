@@ -24,7 +24,9 @@ export default function PortalCalendar() {
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data: contentList } = trpc.content.list.useQuery(
+  // Portal-scoped content (token-authenticated); the agency content.list endpoint isn't
+  // available to a client login, so use the portal endpoint.
+  const { data: contentList } = trpc.clientPortal.myContent.useQuery(
     undefined,
     { enabled: !!user }
   );
@@ -33,10 +35,9 @@ export default function PortalCalendar() {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
-  // Filter content by client and with scheduled dates
-  const clientContent = contentList?.filter((item: any) => 
-    item.clientId === user.clientId && item.scheduledPublishDate
-  ) || [];
+  // The date a piece sits on: its scheduled publish date if set, else when it was created.
+  const effectiveDate = (item: any) => item.scheduledPublishDate || item.createdAt;
+  const clientContent = (contentList || []).filter((item: any) => !!effectiveDate(item));
 
   // Calendar logic
   const year = currentDate.getFullYear();
@@ -61,11 +62,11 @@ export default function PortalCalendar() {
 
   const getContentForDate = (date: Date) => {
     return clientContent.filter((item: any) => {
-      const scheduledDate = new Date(item.scheduledPublishDate);
+      const d = new Date(effectiveDate(item));
       return (
-        scheduledDate.getDate() === date.getDate() &&
-        scheduledDate.getMonth() === date.getMonth() &&
-        scheduledDate.getFullYear() === date.getFullYear()
+        d.getDate() === date.getDate() &&
+        d.getMonth() === date.getMonth() &&
+        d.getFullYear() === date.getFullYear()
       );
     });
   };
@@ -203,20 +204,21 @@ export default function PortalCalendar() {
           </div>
         </Card>
 
-        {/* Upcoming Content List */}
+        {/* Content schedule list */}
         <Card className="p-6 mt-6">
-          <h3 className="text-lg font-semibold mb-4">Upcoming Content</h3>
+          <h3 className="text-lg font-semibold mb-4">Content Schedule</h3>
           {clientContent.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <CalendarIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>No scheduled content</p>
-              <p className="text-sm mt-1">Content with scheduled dates will appear here</p>
+              <p>No content yet</p>
+              <p className="text-sm mt-1">Your published and scheduled content will appear here</p>
             </div>
           ) : (
             <div className="space-y-3">
               {clientContent
-                .sort((a: any, b: any) => 
-                  new Date(a.scheduledPublishDate).getTime() - new Date(b.scheduledPublishDate).getTime()
+                .slice()
+                .sort((a: any, b: any) =>
+                  new Date(effectiveDate(b)).getTime() - new Date(effectiveDate(a)).getTime()
                 )
                 .slice(0, 10)
                 .map((item: any) => (
@@ -225,7 +227,7 @@ export default function PortalCalendar() {
                       <div className="flex-1">
                         <h4 className="font-medium">{item.title}</h4>
                         <p className="text-sm text-muted-foreground mt-1">
-                          {new Date(item.scheduledPublishDate).toLocaleDateString("en-US", {
+                          {new Date(effectiveDate(item)).toLocaleDateString("en-US", {
                             weekday: "long",
                             year: "numeric",
                             month: "long",
