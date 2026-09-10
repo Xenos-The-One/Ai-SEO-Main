@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { googleAnalyticsConnections, content, contentAnalytics } from "../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import jwt from "jsonwebtoken";
+import { decryptSecret } from "./_core/crypto";
 
 /**
  * Google Analytics 4 Data API integration.
@@ -48,7 +49,13 @@ export async function getGAConnection(clientId: number) {
       )
     )
     .limit(1);
-  return connections[0] || null;
+  const connection = connections[0] || null;
+  // Decrypt the service-account key for use (stored encrypted at rest; legacy plaintext
+  // is returned unchanged and gets encrypted on the next save).
+  if (connection?.serviceAccountKey) {
+    connection.serviceAccountKey = decryptSecret(connection.serviceAccountKey);
+  }
+  return connection;
 }
 
 /** Exchange a service-account key for a short-lived GA read-only access token. */

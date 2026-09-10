@@ -4,6 +4,7 @@ import { getDb } from "../db";
 import { googleAnalyticsConnections } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { assertClient } from "../authz";
+import { encryptSecret } from "../_core/crypto";
 import {
   getGAConnection,
   fetchGAMetrics,
@@ -48,7 +49,7 @@ export const googleAnalyticsRouter = router({
             propertyId: input.propertyId,
             viewId: input.viewId,
             serviceAccountEmail: input.serviceAccountEmail,
-            serviceAccountKey: input.serviceAccountKey,
+            serviceAccountKey: encryptSecret(input.serviceAccountKey),
             updatedAt: new Date(),
           })
           .where(eq(googleAnalyticsConnections.id, existing.id));
@@ -61,7 +62,7 @@ export const googleAnalyticsRouter = router({
           propertyId: input.propertyId,
           viewId: input.viewId,
           serviceAccountEmail: input.serviceAccountEmail,
-          serviceAccountKey: input.serviceAccountKey,
+          serviceAccountKey: encryptSecret(input.serviceAccountKey),
           isActive: 1,
           createdBy: ctx.user.id,
         });

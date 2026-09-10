@@ -5768,10 +5768,12 @@ init_db();
 init_schema();
 import { z as z16 } from "zod";
 import { eq as eq9 } from "drizzle-orm";
+init_crypto();
 
 // server/googleAnalytics.ts
 init_db();
 init_schema();
+init_crypto();
 import { eq as eq8, and as and4 } from "drizzle-orm";
 import jwt from "jsonwebtoken";
 var GA_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
@@ -5788,7 +5790,11 @@ async function getGAConnection(clientId) {
       eq8(googleAnalyticsConnections.isActive, 1)
     )
   ).limit(1);
-  return connections[0] || null;
+  const connection = connections[0] || null;
+  if (connection?.serviceAccountKey) {
+    connection.serviceAccountKey = decryptSecret(connection.serviceAccountKey);
+  }
+  return connection;
 }
 async function getAccessToken(serviceAccountKey) {
   let parsed;
@@ -5992,7 +5998,7 @@ var googleAnalyticsRouter = router({
         propertyId: input.propertyId,
         viewId: input.viewId,
         serviceAccountEmail: input.serviceAccountEmail,
-        serviceAccountKey: input.serviceAccountKey,
+        serviceAccountKey: encryptSecret(input.serviceAccountKey),
         updatedAt: /* @__PURE__ */ new Date()
       }).where(eq9(googleAnalyticsConnections.id, existing.id));
       return { success: true, id: existing.id };
@@ -6002,7 +6008,7 @@ var googleAnalyticsRouter = router({
         propertyId: input.propertyId,
         viewId: input.viewId,
         serviceAccountEmail: input.serviceAccountEmail,
-        serviceAccountKey: input.serviceAccountKey,
+        serviceAccountKey: encryptSecret(input.serviceAccountKey),
         isActive: 1,
         createdBy: ctx.user.id
       });
