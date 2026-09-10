@@ -459,7 +459,7 @@ function ServicePlan({ plan }: { plan: any }) {
           <ClipboardList className="h-4 w-4" /> Your Plan &amp; Deliverables
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          What your Peakflow plan includes — monthly deliverables tracked for {plan.monthLabel}
+          What your plan includes — monthly deliverables tracked for {plan.monthLabel}
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
