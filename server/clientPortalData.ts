@@ -3,7 +3,7 @@
  * endpoints, so `clientId` comes from a signed client-portal token and is authoritative —
  * these functions never trust a clientId supplied by the caller directly.
  */
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   aiBrands,
@@ -300,6 +300,80 @@ export async function getPortalContentAnalytics(clientId: number) {
     })),
     library,
   };
+}
+
+/**
+ * A single line item in a client's service plan (shown on the portal Performance page).
+ * `check` = included/not-included; `level` = a coverage badge (Full/Basic/Monthly/…);
+ * `quota` = a per-month deliverable target whose `delivered` count the server fills in.
+ */
+export type ServicePlanItem = {
+  key: string;
+  label: string;
+  type: "check" | "level" | "quota";
+  included?: boolean; // check
+  level?: string; // level
+  target?: number; // quota target per period
+  unit?: string; // quota period label, e.g. "month"
+  source?: string; // quota source: "content:blog" | "content:newsletter" | "manual"
+  delivered?: number; // quota: filled by the server (or stored, for "manual")
+};
+
+function startOfCurrentMonth(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+function currentMonthLabel(): string {
+  return new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+
+/**
+ * The client's service plan plus live tracking. `quota` items sourced from content
+ * (`content:<type>`) report how many of that content type were produced for the client in
+ * the current calendar month; other quota items use their stored `delivered` value.
+ */
+export async function getPortalServicePlan(clientId: number) {
+  const d = await db();
+  const [client] = await d
+    .select({ servicePlan: clients.servicePlan })
+    .from(clients)
+    .where(eq(clients.id, clientId))
+    .limit(1);
+
+  let items: ServicePlanItem[] = [];
+  try {
+    items = client?.servicePlan ? (JSON.parse(client.servicePlan) as ServicePlanItem[]) : [];
+  } catch {
+    items = [];
+  }
+  if (!items.length) return { hasPlan: false, monthLabel: currentMonthLabel(), items: [] as ServicePlanItem[] };
+
+  // Count content produced this calendar month, by type, for content-sourced quota items.
+  const counts = new Map<string, number>();
+  const needsContentCounts = items.some(
+    (i) => i.type === "quota" && typeof i.source === "string" && i.source.startsWith("content:")
+  );
+  if (needsContentCounts) {
+    const rows = await d
+      .select({ type: contentTable.contentType, n: sql<number>`count(*)` })
+      .from(contentTable)
+      .where(and(eq(contentTable.clientId, clientId), gte(contentTable.createdAt, startOfCurrentMonth())))
+      .groupBy(contentTable.contentType);
+    for (const r of rows) counts.set(r.type, Number(r.n));
+  }
+
+  const enriched = items.map((i) => {
+    if (i.type === "quota") {
+      let delivered = i.delivered ?? 0;
+      if (typeof i.source === "string" && i.source.startsWith("content:")) {
+        delivered = counts.get(i.source.split(":")[1]) ?? 0;
+      }
+      return { ...i, delivered };
+    }
+    return i;
+  });
+
+  return { hasPlan: true, monthLabel: currentMonthLabel(), items: enriched };
 }
 
 /**

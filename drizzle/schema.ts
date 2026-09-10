@@ -76,6 +76,9 @@ export const clients = pgTable("clients", {
   socialInstagram: varchar("socialInstagram", { length: 500 }),
   socialLinkedin: varchar("socialLinkedin", { length: 500 }),
   socialTwitter: varchar("socialTwitter", { length: 500 }),
+
+  // Service plan / deliverables shown on the client portal (JSON array of plan items).
+  servicePlan: text("servicePlan"),
 });
 
 export type Client = typeof clients.$inferSelect;

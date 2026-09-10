@@ -16,6 +16,9 @@ import {
   Search,
   FileText,
   Eye,
+  Check,
+  Minus,
+  ClipboardList,
 } from "lucide-react";
 import {
   BarChart,
@@ -55,6 +58,7 @@ export default function PortalPerformance() {
 
   const { data, isLoading } = trpc.clientPortal.performance.useQuery(undefined, { enabled: !!user });
   const { data: contentPerf } = trpc.clientPortal.contentAnalytics.useQuery(undefined, { enabled: !!user });
+  const { data: plan } = trpc.clientPortal.servicePlan.useQuery(undefined, { enabled: !!user });
 
   if (!user || isLoading) {
     return <div className="min-h-screen flex items-center justify-center text-muted-foreground animate-pulse">Loading…</div>;
@@ -144,6 +148,9 @@ export default function PortalPerformance() {
             icon={<ShieldCheck className="h-5 w-5" />}
           />
         </div>
+
+        {/* Plan & deliverables */}
+        {plan?.hasPlan && <ServicePlan plan={plan} />}
 
         {/* Charts */}
         {perf.hasAiData && (
@@ -430,4 +437,86 @@ function StatusPill({ status }: { status: string }) {
     New: "text-blue-500",
   };
   return <span className={`text-xs font-medium ${map[status] || "text-muted-foreground"}`}>{status}</span>;
+}
+
+function ServicePlan({ plan }: { plan: any }) {
+  const items: any[] = plan.items || [];
+  const quotas = items.filter((i) => i.type === "quota");
+  const others = items.filter((i) => i.type !== "quota");
+
+  const levelClass = (level: string) => {
+    const l = (level || "").toLowerCase();
+    if (l === "full") return "bg-emerald-500/10 text-emerald-600";
+    if (l === "basic") return "bg-amber-500/10 text-amber-600";
+    if (l === "monthly") return "bg-indigo-500/10 text-indigo-600";
+    return "bg-muted text-muted-foreground";
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <ClipboardList className="h-4 w-4" /> Your Plan &amp; Deliverables
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          What your Peakflow plan includes — monthly deliverables tracked for {plan.monthLabel}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Monthly deliverables with live progress */}
+        {quotas.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {quotas.map((q) => {
+              const delivered = q.delivered ?? 0;
+              const target = q.target ?? 0;
+              const pct = target > 0 ? Math.min(100, Math.round((delivered / target) * 100)) : 0;
+              const onTrack = delivered >= target;
+              return (
+                <div key={q.key} className="rounded-lg border p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">{q.label}</span>
+                    <span className={`text-sm font-semibold ${onTrack ? "text-emerald-600" : "text-amber-600"}`}>
+                      {delivered}/{target}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${onTrack ? "bg-emerald-500" : "bg-amber-500"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    per {q.unit || "month"} · {onTrack ? "On track" : "In progress"}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* All other service lines */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
+          {others.map((it) => {
+            const included = it.type === "check" ? it.included !== false : true;
+            return (
+              <div key={it.key} className="flex items-center justify-between py-2 border-b last:border-0">
+                <span className={`text-sm ${included ? "" : "text-muted-foreground"}`}>{it.label}</span>
+                {it.type === "level" ? (
+                  <Badge className={`text-xs ${levelClass(it.level)}`}>{it.level}</Badge>
+                ) : included ? (
+                  <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
+                    <Check className="h-4 w-4" /> Included
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Minus className="h-4 w-4" /> Not in plan
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

@@ -159,7 +159,9 @@ var init_schema = __esm({
       socialFacebook: varchar("socialFacebook", { length: 500 }),
       socialInstagram: varchar("socialInstagram", { length: 500 }),
       socialLinkedin: varchar("socialLinkedin", { length: 500 }),
-      socialTwitter: varchar("socialTwitter", { length: 500 })
+      socialTwitter: varchar("socialTwitter", { length: 500 }),
+      // Service plan / deliverables shown on the client portal (JSON array of plan items).
+      servicePlan: text("servicePlan")
     });
     clientPortalUsers = pgTable("clientPortalUsers", {
       id: serial("id").primaryKey(),
@@ -3272,12 +3274,13 @@ __export(clientPortalData_exports, {
   getPortalFeedback: () => getPortalFeedback,
   getPortalMe: () => getPortalMe,
   getPortalPerformance: () => getPortalPerformance,
+  getPortalServicePlan: () => getPortalServicePlan,
   getPortalStats: () => getPortalStats,
   portalApproveContent: () => portalApproveContent,
   portalRequestRevision: () => portalRequestRevision,
   providerLabel: () => providerLabel
 });
-import { and as and16, asc as asc3, desc as desc9, eq as eq20, inArray as inArray3, sql as sql5 } from "drizzle-orm";
+import { and as and16, asc as asc3, desc as desc9, eq as eq20, gte as gte5, inArray as inArray3, sql as sql5 } from "drizzle-orm";
 async function db5() {
   const d = await getDb();
   if (!d) throw new Error("Database not available");
@@ -3449,6 +3452,43 @@ async function getPortalContentAnalytics(clientId) {
     })),
     library
   };
+}
+function startOfCurrentMonth() {
+  const now = /* @__PURE__ */ new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+function currentMonthLabel() {
+  return (/* @__PURE__ */ new Date()).toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+async function getPortalServicePlan(clientId) {
+  const d = await db5();
+  const [client] = await d.select({ servicePlan: clients.servicePlan }).from(clients).where(eq20(clients.id, clientId)).limit(1);
+  let items = [];
+  try {
+    items = client?.servicePlan ? JSON.parse(client.servicePlan) : [];
+  } catch {
+    items = [];
+  }
+  if (!items.length) return { hasPlan: false, monthLabel: currentMonthLabel(), items: [] };
+  const counts = /* @__PURE__ */ new Map();
+  const needsContentCounts = items.some(
+    (i) => i.type === "quota" && typeof i.source === "string" && i.source.startsWith("content:")
+  );
+  if (needsContentCounts) {
+    const rows = await d.select({ type: content.contentType, n: sql5`count(*)` }).from(content).where(and16(eq20(content.clientId, clientId), gte5(content.createdAt, startOfCurrentMonth()))).groupBy(content.contentType);
+    for (const r of rows) counts.set(r.type, Number(r.n));
+  }
+  const enriched = items.map((i) => {
+    if (i.type === "quota") {
+      let delivered = i.delivered ?? 0;
+      if (typeof i.source === "string" && i.source.startsWith("content:")) {
+        delivered = counts.get(i.source.split(":")[1]) ?? 0;
+      }
+      return { ...i, delivered };
+    }
+    return i;
+  });
+  return { hasPlan: true, monthLabel: currentMonthLabel(), items: enriched };
 }
 async function getPortalPerformance(clientId) {
   const d = await db5();
@@ -7599,6 +7639,10 @@ You can now publish this content to the client's CMS via the Publishing page.`
     contentAnalytics: portalProcedure.query(async ({ ctx }) => {
       const { getPortalContentAnalytics: getPortalContentAnalytics2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalContentAnalytics2(ctx.portalUser.clientId);
+    }),
+    servicePlan: portalProcedure.query(async ({ ctx }) => {
+      const { getPortalServicePlan: getPortalServicePlan2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      return getPortalServicePlan2(ctx.portalUser.clientId);
     }),
     contentFeedback: portalProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
       const { getPortalFeedback: getPortalFeedback2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
