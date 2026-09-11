@@ -19,6 +19,10 @@ import {
   Check,
   Minus,
   ClipboardList,
+  Activity,
+  Users,
+  Target,
+  Gauge,
 } from "lucide-react";
 import {
   BarChart,
@@ -31,6 +35,16 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  PieChart,
+  Pie,
+  Cell,
+  AreaChart,
+  Area,
 } from "recharts";
 
 // Stable colors per engine so the line chart, bars and cards agree.
@@ -41,6 +55,17 @@ const ENGINE_COLORS: Record<string, string> = {
   perplexity: "#8b5cf6",
 };
 const colorFor = (provider: string) => ENGINE_COLORS[provider] || "#6b7280";
+
+// Colors per content type for the content-views chart.
+const TYPE_COLORS: Record<string, string> = {
+  blog: "#10b981",
+  newsletter: "#3b82f6",
+  social: "#f59e0b",
+  landing: "#8b5cf6",
+  email: "#ec4899",
+};
+const typeColor = (t: string) => TYPE_COLORS[t] || "#6b7280";
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 export default function PortalPerformance() {
   const [, setLocation] = useLocation();
@@ -228,6 +253,181 @@ export default function PortalPerformance() {
           </div>
         )}
 
+        {/* AI-visibility insight widgets (derived from scan data) */}
+        {perf.hasAiData && (
+          <>
+            {/* Second stat row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard
+                label="Est. Monthly AI Visits"
+                value={(perf.estMonthlyVisits ?? 0).toLocaleString()}
+                sub={perf.visitsDeltaPct != null ? `↑ ${perf.visitsDeltaPct}% since onboarding` : undefined}
+                icon={<Activity className="h-5 w-5" />}
+              />
+              <StatCard
+                label="Local Competitor Rank"
+                value={perf.competitorRank ? `#${perf.competitorRank.rank} of ${perf.competitorRank.total}` : "—"}
+                sub={perf.competitorRank ? "Among tracked peers" : undefined}
+                icon={<Users className="h-5 w-5" />}
+              />
+              <StatCard
+                label="Milestones Hit"
+                value={`${perf.milestonesHit.done} / ${perf.milestonesHit.total}`}
+                sub="Achievement progression"
+                icon={<Target className="h-5 w-5" />}
+              />
+              <StatCard
+                label="AI Visibility Score"
+                value={perf.weightedScore != null ? `${perf.weightedScore}/100` : "—"}
+                sub="Weighted across all engines"
+                icon={<Gauge className="h-5 w-5" />}
+              />
+            </div>
+
+            {/* Radar + Share of Voice */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">AI Visibility Radar</CardTitle>
+                  <p className="text-xs text-muted-foreground">Multi-dimensional view of your AI search presence (0–100)</p>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <RadarChart data={perf.radar as any[]}>
+                      <PolarGrid />
+                      <PolarAngleAxis dataKey="dimension" fontSize={12} />
+                      <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                      <Radar name="Visibility" dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.35} />
+                      <Tooltip />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Share of Voice</CardTitle>
+                  <p className="text-xs text-muted-foreground">Visibility split across AI engines</p>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={perf.shareOfVoice as any[]}
+                        dataKey="pct"
+                        nameKey="label"
+                        innerRadius={70}
+                        outerRadius={110}
+                        paddingAngle={2}
+                      >
+                        {perf.shareOfVoice.map((s) => (
+                          <Cell key={s.provider} fill={colorFor(s.provider)} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v: any, n: any) => [`${v}%`, n]} />
+                      <Legend formatter={(_v, entry: any) => `${entry?.payload?.label} ${entry?.payload?.pct}%`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Estimated referral traffic */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Activity className="h-4 w-4" /> Estimated AI-Driven Referral Traffic
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">Modeled monthly visits generated from AI citations</p>
+                  </div>
+                  <Badge variant="outline" className="text-xs">{(perf.estMonthlyVisits ?? 0).toLocaleString()} visits/mo now</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={perf.referralTraffic as any[]}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="label" fontSize={12} />
+                    <YAxis fontSize={12} />
+                    <Tooltip />
+                    <Legend />
+                    {engines.map((e) => (
+                      <Area
+                        key={e.provider}
+                        type="monotone"
+                        dataKey={e.provider}
+                        name={e.label}
+                        stackId="1"
+                        stroke={colorFor(e.provider)}
+                        fill={colorFor(e.provider)}
+                        fillOpacity={0.25}
+                      />
+                    ))}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Competitor comparison + achievement milestones */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {perf.competitors.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="h-4 w-4" /> Competitor Comparison
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">Your share of AI mentions vs tracked peers</p>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {perf.competitors.map((c) => (
+                      <div
+                        key={c.name}
+                        className={`flex items-center justify-between rounded-lg border p-3 ${c.isYou ? "bg-foreground text-background" : ""}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${c.isYou ? "bg-background text-foreground" : "bg-muted"}`}>
+                            {c.rank}
+                          </span>
+                          <span className="font-medium">{c.name}</span>
+                          {c.isYou && <Badge className="bg-background text-foreground text-[10px]">You</Badge>}
+                        </div>
+                        <span className={`text-sm font-semibold ${c.isYou ? "" : "text-muted-foreground"}`}>{c.score} mentions</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Trophy className="h-4 w-4" /> Achievement Milestones
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">{perf.milestonesHit.done} of {perf.milestonesHit.total} reached</p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {perf.milestones.map((m) => (
+                    <div key={m.label} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={`h-3 w-3 rounded-full ${m.done ? "bg-emerald-500" : "bg-muted-foreground/30"}`} />
+                        <div>
+                          <p className={`text-sm font-medium ${m.done ? "" : "text-muted-foreground"}`}>{m.label}</p>
+                          <p className="text-xs text-muted-foreground">Month {m.month}</p>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className={`text-xs ${m.done ? "text-emerald-600" : "text-muted-foreground"}`}>
+                        {m.done ? "Done" : "Pending"}
+                      </Badge>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )}
+
         {/* Keyword rankings (from rank tracking) */}
         <Card>
           <CardHeader>
@@ -303,6 +503,36 @@ export default function PortalPerformance() {
             </Card>
           ) : (
             <div className="space-y-6">
+              {contentPerf.viewsOverTime.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Content Views Over Time</CardTitle>
+                    <p className="text-xs text-muted-foreground">Monthly views by content type</p>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={contentPerf.viewsOverTime as any[]}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="label" fontSize={12} />
+                        <YAxis fontSize={12} />
+                        <Tooltip />
+                        <Legend />
+                        {(contentPerf.types || []).map((t) => (
+                          <Line
+                            key={t}
+                            type="monotone"
+                            dataKey={t}
+                            name={cap(t)}
+                            stroke={typeColor(t)}
+                            strokeWidth={2}
+                            dot={{ r: 2 }}
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              )}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader>
@@ -410,12 +640,21 @@ export default function PortalPerformance() {
             </CardContent>
           </Card>
         )}
+
+        {/* Footer disclaimer */}
+        <div className="rounded-lg border bg-muted/30 px-4 py-3 text-xs text-muted-foreground flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 shrink-0" />
+          <span>
+            This private portal displays performance data for <span className="font-medium text-foreground">{perf.profile.name}</span> only.
+            {engines.length > 0 && ` Rankings are verified across ${engines.map((e) => e.label).join(", ")}.`}
+          </span>
+        </div>
       </main>
     </div>
   );
 }
 
-function StatCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+function StatCard({ label, value, icon, sub }: { label: string; value: string; icon: React.ReactNode; sub?: string }) {
   return (
     <Card>
       <CardContent className="pt-6">
@@ -424,6 +663,7 @@ function StatCard({ label, value, icon }: { label: string; value: string; icon: 
           <span className="text-muted-foreground">{icon}</span>
         </div>
         <p className="text-2xl font-bold mt-2">{value}</p>
+        {sub && <p className="text-xs text-emerald-600 mt-1">{sub}</p>}
       </CardContent>
     </Card>
   );

@@ -224,6 +224,8 @@ export async function getPortalContentAnalytics(clientId: number) {
     avgEngagement: 0,
     aiCitationsEarned: 0,
     byType: [] as { type: string; views: number; engagement: number }[],
+    viewsOverTime: [] as Record<string, number | string>[],
+    types: [] as string[],
     library: [] as any[],
   };
 
@@ -287,6 +289,23 @@ export async function getPortalContentAnalytics(clientId: number) {
 
   library.sort((a, b) => b.views - a.views);
 
+  // Views over time: sum snapshot views per calendar month, split by content type.
+  const typeById = new Map(rows.map((r) => [r.id, r.contentType]));
+  const typesPresent = Array.from(new Set(rows.map((r) => r.contentType)));
+  const monthMap = new Map<string, { sort: number; row: Record<string, number | string> }>();
+  for (const a of analytics) {
+    const dt = new Date(a.recordedAt);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, "0")}`;
+    const label = dt.toLocaleString("en-US", { month: "short" });
+    const type = typeById.get(a.contentId) ?? "other";
+    const entry = monthMap.get(key) ?? { sort: dt.getTime(), row: { label } };
+    entry.row[type] = ((entry.row[type] as number) ?? 0) + a.views;
+    monthMap.set(key, entry);
+  }
+  const viewsOverTime = Array.from(monthMap.values())
+    .sort((a, b) => a.sort - b.sort)
+    .map((e) => e.row);
+
   return {
     hasData: true,
     totalPieces: rows.length,
@@ -298,6 +317,8 @@ export async function getPortalContentAnalytics(clientId: number) {
       views: t.views,
       engagement: t.count > 0 ? Math.round((t.engSum / t.count) * 10) / 10 : 0,
     })),
+    viewsOverTime,
+    types: typesPresent,
     library,
   };
 }
@@ -409,7 +430,7 @@ export async function getPortalPerformance(clientId: number) {
 
   let aiVisibility = emptyAiVisibility();
   if (brandId != null) {
-    aiVisibility = await buildAiVisibility(brandId);
+    aiVisibility = await buildAiVisibility(brandId, profile.name);
   }
 
   const keywords = await buildKeywordRankings(clientId);
@@ -419,6 +440,7 @@ export async function getPortalPerformance(clientId: number) {
     hasAiData: aiVisibility.hasAiData,
     hasKeywordData: keywords.length > 0,
     visibilityScore: aiVisibility.visibilityScore,
+    weightedScore: aiVisibility.weightedScore,
     bestRank: aiVisibility.bestRank,
     topEngine: aiVisibility.topEngine,
     // "verified" only when the brand was actually cited by an engine, not merely scanned.
@@ -427,6 +449,15 @@ export async function getPortalPerformance(clientId: number) {
     rankProgression: aiVisibility.rankProgression,
     startVsCurrent: aiVisibility.startVsCurrent,
     citations: aiVisibility.citations,
+    shareOfVoice: aiVisibility.shareOfVoice,
+    radar: aiVisibility.radar,
+    estMonthlyVisits: aiVisibility.estMonthlyVisits,
+    visitsDeltaPct: aiVisibility.visitsDeltaPct,
+    referralTraffic: aiVisibility.referralTraffic,
+    competitors: aiVisibility.competitors,
+    competitorRank: aiVisibility.competitorRank,
+    milestones: aiVisibility.milestones,
+    milestonesHit: aiVisibility.milestonesHit,
     keywords,
   };
 }
@@ -435,12 +466,22 @@ function emptyAiVisibility() {
   return {
     hasAiData: false,
     visibilityScore: null as number | null,
+    weightedScore: null as number | null,
     bestRank: null as number | null,
     topEngine: null as string | null,
     engines: [] as EngineSummary[],
     rankProgression: [] as Record<string, number | string | null>[],
     startVsCurrent: [] as { provider: string; label: string; start: number | null; current: number | null }[],
     citations: [] as Citation[],
+    shareOfVoice: [] as { provider: string; label: string; mentions: number; pct: number }[],
+    radar: [] as { dimension: string; value: number }[],
+    estMonthlyVisits: null as number | null,
+    visitsDeltaPct: null as number | null,
+    referralTraffic: [] as Record<string, number | string>[],
+    competitors: [] as { name: string; isYou: boolean; score: number; rank: number }[],
+    competitorRank: null as { rank: number; total: number } | null,
+    milestones: [] as { label: string; month: number; done: boolean }[],
+    milestonesHit: { done: 0, total: 0 },
   };
 }
 
@@ -461,8 +502,12 @@ type Citation = {
   mentioned: boolean;
 };
 
-async function buildAiVisibility(brandId: number) {
+/** Modeled monthly referral visits attributed to each current AI mention. */
+const VISITS_PER_MENTION = 30;
+
+async function buildAiVisibility(brandId: number, clientName: string) {
   const d = await db();
+  const [brand] = await d.select({ competitors: aiBrands.competitors }).from(aiBrands).where(eq(aiBrands.id, brandId)).limit(1);
   const rows = await d
     .select({
       scanId: aiVisibilityResults.scanId,
@@ -470,6 +515,7 @@ async function buildAiVisibility(brandId: number) {
       mentioned: aiVisibilityResults.mentioned,
       position: aiVisibilityResults.position,
       sentiment: aiVisibilityResults.sentiment,
+      competitorsMentioned: aiVisibilityResults.competitorsMentioned,
       summary: aiVisibilityResults.summary,
       answerExcerpt: aiVisibilityResults.answerExcerpt,
       prompt: aiPrompts.prompt,
@@ -559,15 +605,113 @@ async function buildAiVisibility(brandId: number) {
     }
   }
 
+  // --- Share of Voice: each engine's share of the latest scan's mentions ---
+  const mentionsByProvider = providers.map((p) => ({
+    provider: p,
+    label: providerLabel(p),
+    mentions: latestRows.filter((r) => r.provider === p && r.mentioned).length,
+  }));
+  const totalMentions = mentionsByProvider.reduce((s, x) => s + x.mentions, 0);
+  const shareOfVoice = mentionsByProvider.map((x) => ({
+    ...x,
+    pct: totalMentions > 0 ? Math.round((x.mentions / totalMentions) * 100) : 0,
+  }));
+
+  // --- AI Visibility Radar: per-engine mention rate + citation trust + momentum ---
+  const radar = providers.map((p) => {
+    const pr = latestRows.filter((r) => r.provider === p);
+    const rate = pr.length ? Math.round((pr.filter((r) => r.mentioned).length / pr.length) * 100) : 0;
+    return { dimension: providerLabel(p), value: rate };
+  });
+  const mentionedLatest = latestRows.filter((r) => r.mentioned);
+  const citationTrust = mentionedLatest.length
+    ? Math.round((mentionedLatest.filter((r) => r.sentiment === "positive").length / mentionedLatest.length) * 100)
+    : 0;
+  const firstRows = rows.filter((r) => r.scanId === firstScan);
+  const firstRate = firstRows.length ? (firstRows.filter((r) => r.mentioned).length / firstRows.length) * 100 : 0;
+  const momentum = Math.max(0, Math.min(100, Math.round(50 + (visibilityScore - firstRate))));
+  radar.push({ dimension: "Citation Trust", value: citationTrust });
+  radar.push({ dimension: "Momentum", value: momentum });
+
+  // --- Weighted visibility score: mention rate tempered by average position quality ---
+  const posRows = mentionedLatest.filter((r) => r.position != null);
+  const posQuality = posRows.length
+    ? posRows.reduce((s, r) => s + Math.max(0, 1 - ((r.position as number) - 1) / 10), 0) / posRows.length
+    : 0;
+  const weightedScore = Math.round(visibilityScore * 0.6 + posQuality * 100 * 0.4);
+
+  // --- Modeled referral traffic per scan + estimated monthly visits ---
+  const referralTraffic = scanOrder.map((scanId, i) => {
+    const row: Record<string, number | string> = { label: `M${i + 1}` };
+    for (const p of providers) {
+      row[p] = rows.filter((r) => r.scanId === scanId && r.provider === p && r.mentioned).length * VISITS_PER_MENTION;
+    }
+    return row;
+  });
+  const estMonthlyVisits = totalMentions * VISITS_PER_MENTION;
+  const firstVisits = firstRows.filter((r) => r.mentioned).length * VISITS_PER_MENTION;
+  const visitsDeltaPct = firstVisits > 0 ? Math.round(((estMonthlyVisits - firstVisits) / firstVisits) * 100) : null;
+
+  // --- Competitor comparison: rank the client among tracked peers by mention frequency ---
+  let competitorNames: string[] = [];
+  try {
+    competitorNames = brand?.competitors ? JSON.parse(brand.competitors) : [];
+  } catch {
+    competitorNames = [];
+  }
+  const compCounts = new Map<string, number>(competitorNames.map((n) => [n, 0]));
+  for (const r of latestRows) {
+    if (!r.competitorsMentioned) continue;
+    let arr: string[] = [];
+    try {
+      arr = JSON.parse(r.competitorsMentioned);
+    } catch {
+      arr = [];
+    }
+    for (const nm of arr) if (compCounts.has(nm)) compCounts.set(nm, (compCounts.get(nm) ?? 0) + 1);
+  }
+  const compEntries = [
+    { name: clientName, isYou: true, score: totalMentions },
+    ...competitorNames.map((n) => ({ name: n, isYou: false, score: compCounts.get(n) ?? 0 })),
+  ].sort((a, b) => b.score - a.score);
+  const competitors = compEntries.map((e, i) => ({ ...e, rank: i + 1 }));
+  const youRank = competitors.find((c) => c.isYou)?.rank ?? null;
+  const competitorRank = youRank != null ? { rank: youRank, total: competitors.length } : null;
+
+  // --- Achievement milestones: derived from the best rank ever reached ---
+  const rankedEver = rows.filter((r) => r.position != null).map((r) => r.position as number);
+  const bestEver = rankedEver.length ? Math.min(...rankedEver) : null;
+  const everMentioned = rows.some((r) => r.mentioned);
+  const multiEngine = providers.filter((p) => latestRows.some((r) => r.provider === p && r.mentioned)).length >= 2;
+  const milestones = [
+    { label: "Onboarded to AI Knowledge Graph", month: 1, done: true },
+    { label: "First AI citation detected", month: 2, done: everMentioned },
+    { label: "Reached Top 10", month: 3, done: bestEver != null && bestEver <= 10 },
+    { label: "Reached Top 3", month: 4, done: bestEver != null && bestEver <= 3 },
+    { label: "Multi-engine coverage", month: 5, done: multiEngine },
+    { label: "#1 Position secured", month: 6, done: bestEver === 1 },
+  ];
+  const milestonesHit = { done: milestones.filter((m) => m.done).length, total: milestones.length };
+
   return {
     hasAiData: true,
     visibilityScore,
+    weightedScore,
     bestRank,
     topEngine,
     engines,
     rankProgression,
     startVsCurrent,
     citations,
+    shareOfVoice,
+    radar,
+    estMonthlyVisits,
+    visitsDeltaPct,
+    referralTraffic,
+    competitors,
+    competitorRank,
+    milestones,
+    milestonesHit,
   };
 }
 

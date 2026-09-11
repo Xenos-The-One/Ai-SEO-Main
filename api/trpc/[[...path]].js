@@ -3393,6 +3393,8 @@ async function getPortalContentAnalytics(clientId) {
     avgEngagement: 0,
     aiCitationsEarned: 0,
     byType: [],
+    viewsOverTime: [],
+    types: [],
     library: []
   };
   let aiCitationsEarned = 0;
@@ -3439,6 +3441,19 @@ async function getPortalContentAnalytics(clientId) {
     };
   });
   library.sort((a, b) => b.views - a.views);
+  const typeById = new Map(rows.map((r) => [r.id, r.contentType]));
+  const typesPresent = Array.from(new Set(rows.map((r) => r.contentType)));
+  const monthMap = /* @__PURE__ */ new Map();
+  for (const a of analytics) {
+    const dt = new Date(a.recordedAt);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, "0")}`;
+    const label = dt.toLocaleString("en-US", { month: "short" });
+    const type = typeById.get(a.contentId) ?? "other";
+    const entry = monthMap.get(key) ?? { sort: dt.getTime(), row: { label } };
+    entry.row[type] = (entry.row[type] ?? 0) + a.views;
+    monthMap.set(key, entry);
+  }
+  const viewsOverTime = Array.from(monthMap.values()).sort((a, b) => a.sort - b.sort).map((e) => e.row);
   return {
     hasData: true,
     totalPieces: rows.length,
@@ -3450,6 +3465,8 @@ async function getPortalContentAnalytics(clientId) {
       views: t2.views,
       engagement: t2.count > 0 ? Math.round(t2.engSum / t2.count * 10) / 10 : 0
     })),
+    viewsOverTime,
+    types: typesPresent,
     library
   };
 }
@@ -3510,7 +3527,7 @@ async function getPortalPerformance(clientId) {
   const brandId = await findClientBrandId(clientId);
   let aiVisibility = emptyAiVisibility();
   if (brandId != null) {
-    aiVisibility = await buildAiVisibility(brandId);
+    aiVisibility = await buildAiVisibility(brandId, profile.name);
   }
   const keywords = await buildKeywordRankings(clientId);
   return {
@@ -3518,6 +3535,7 @@ async function getPortalPerformance(clientId) {
     hasAiData: aiVisibility.hasAiData,
     hasKeywordData: keywords.length > 0,
     visibilityScore: aiVisibility.visibilityScore,
+    weightedScore: aiVisibility.weightedScore,
     bestRank: aiVisibility.bestRank,
     topEngine: aiVisibility.topEngine,
     // "verified" only when the brand was actually cited by an engine, not merely scanned.
@@ -3526,6 +3544,15 @@ async function getPortalPerformance(clientId) {
     rankProgression: aiVisibility.rankProgression,
     startVsCurrent: aiVisibility.startVsCurrent,
     citations: aiVisibility.citations,
+    shareOfVoice: aiVisibility.shareOfVoice,
+    radar: aiVisibility.radar,
+    estMonthlyVisits: aiVisibility.estMonthlyVisits,
+    visitsDeltaPct: aiVisibility.visitsDeltaPct,
+    referralTraffic: aiVisibility.referralTraffic,
+    competitors: aiVisibility.competitors,
+    competitorRank: aiVisibility.competitorRank,
+    milestones: aiVisibility.milestones,
+    milestonesHit: aiVisibility.milestonesHit,
     keywords
   };
 }
@@ -3533,22 +3560,34 @@ function emptyAiVisibility() {
   return {
     hasAiData: false,
     visibilityScore: null,
+    weightedScore: null,
     bestRank: null,
     topEngine: null,
     engines: [],
     rankProgression: [],
     startVsCurrent: [],
-    citations: []
+    citations: [],
+    shareOfVoice: [],
+    radar: [],
+    estMonthlyVisits: null,
+    visitsDeltaPct: null,
+    referralTraffic: [],
+    competitors: [],
+    competitorRank: null,
+    milestones: [],
+    milestonesHit: { done: 0, total: 0 }
   };
 }
-async function buildAiVisibility(brandId) {
+async function buildAiVisibility(brandId, clientName) {
   const d = await db5();
+  const [brand] = await d.select({ competitors: aiBrands.competitors }).from(aiBrands).where(eq20(aiBrands.id, brandId)).limit(1);
   const rows = await d.select({
     scanId: aiVisibilityResults.scanId,
     provider: aiVisibilityResults.provider,
     mentioned: aiVisibilityResults.mentioned,
     position: aiVisibilityResults.position,
     sentiment: aiVisibilityResults.sentiment,
+    competitorsMentioned: aiVisibilityResults.competitorsMentioned,
     summary: aiVisibilityResults.summary,
     answerExcerpt: aiVisibilityResults.answerExcerpt,
     prompt: aiPrompts.prompt,
@@ -3606,15 +3645,97 @@ async function buildAiVisibility(brandId) {
       });
     }
   }
+  const mentionsByProvider = providers.map((p) => ({
+    provider: p,
+    label: providerLabel(p),
+    mentions: latestRows.filter((r) => r.provider === p && r.mentioned).length
+  }));
+  const totalMentions = mentionsByProvider.reduce((s, x) => s + x.mentions, 0);
+  const shareOfVoice = mentionsByProvider.map((x) => ({
+    ...x,
+    pct: totalMentions > 0 ? Math.round(x.mentions / totalMentions * 100) : 0
+  }));
+  const radar = providers.map((p) => {
+    const pr = latestRows.filter((r) => r.provider === p);
+    const rate = pr.length ? Math.round(pr.filter((r) => r.mentioned).length / pr.length * 100) : 0;
+    return { dimension: providerLabel(p), value: rate };
+  });
+  const mentionedLatest = latestRows.filter((r) => r.mentioned);
+  const citationTrust = mentionedLatest.length ? Math.round(mentionedLatest.filter((r) => r.sentiment === "positive").length / mentionedLatest.length * 100) : 0;
+  const firstRows = rows.filter((r) => r.scanId === firstScan);
+  const firstRate = firstRows.length ? firstRows.filter((r) => r.mentioned).length / firstRows.length * 100 : 0;
+  const momentum = Math.max(0, Math.min(100, Math.round(50 + (visibilityScore - firstRate))));
+  radar.push({ dimension: "Citation Trust", value: citationTrust });
+  radar.push({ dimension: "Momentum", value: momentum });
+  const posRows = mentionedLatest.filter((r) => r.position != null);
+  const posQuality = posRows.length ? posRows.reduce((s, r) => s + Math.max(0, 1 - (r.position - 1) / 10), 0) / posRows.length : 0;
+  const weightedScore = Math.round(visibilityScore * 0.6 + posQuality * 100 * 0.4);
+  const referralTraffic = scanOrder.map((scanId, i) => {
+    const row = { label: `M${i + 1}` };
+    for (const p of providers) {
+      row[p] = rows.filter((r) => r.scanId === scanId && r.provider === p && r.mentioned).length * VISITS_PER_MENTION;
+    }
+    return row;
+  });
+  const estMonthlyVisits = totalMentions * VISITS_PER_MENTION;
+  const firstVisits = firstRows.filter((r) => r.mentioned).length * VISITS_PER_MENTION;
+  const visitsDeltaPct = firstVisits > 0 ? Math.round((estMonthlyVisits - firstVisits) / firstVisits * 100) : null;
+  let competitorNames = [];
+  try {
+    competitorNames = brand?.competitors ? JSON.parse(brand.competitors) : [];
+  } catch {
+    competitorNames = [];
+  }
+  const compCounts = new Map(competitorNames.map((n) => [n, 0]));
+  for (const r of latestRows) {
+    if (!r.competitorsMentioned) continue;
+    let arr = [];
+    try {
+      arr = JSON.parse(r.competitorsMentioned);
+    } catch {
+      arr = [];
+    }
+    for (const nm of arr) if (compCounts.has(nm)) compCounts.set(nm, (compCounts.get(nm) ?? 0) + 1);
+  }
+  const compEntries = [
+    { name: clientName, isYou: true, score: totalMentions },
+    ...competitorNames.map((n) => ({ name: n, isYou: false, score: compCounts.get(n) ?? 0 }))
+  ].sort((a, b) => b.score - a.score);
+  const competitors = compEntries.map((e, i) => ({ ...e, rank: i + 1 }));
+  const youRank = competitors.find((c) => c.isYou)?.rank ?? null;
+  const competitorRank = youRank != null ? { rank: youRank, total: competitors.length } : null;
+  const rankedEver = rows.filter((r) => r.position != null).map((r) => r.position);
+  const bestEver = rankedEver.length ? Math.min(...rankedEver) : null;
+  const everMentioned = rows.some((r) => r.mentioned);
+  const multiEngine = providers.filter((p) => latestRows.some((r) => r.provider === p && r.mentioned)).length >= 2;
+  const milestones = [
+    { label: "Onboarded to AI Knowledge Graph", month: 1, done: true },
+    { label: "First AI citation detected", month: 2, done: everMentioned },
+    { label: "Reached Top 10", month: 3, done: bestEver != null && bestEver <= 10 },
+    { label: "Reached Top 3", month: 4, done: bestEver != null && bestEver <= 3 },
+    { label: "Multi-engine coverage", month: 5, done: multiEngine },
+    { label: "#1 Position secured", month: 6, done: bestEver === 1 }
+  ];
+  const milestonesHit = { done: milestones.filter((m) => m.done).length, total: milestones.length };
   return {
     hasAiData: true,
     visibilityScore,
+    weightedScore,
     bestRank,
     topEngine,
     engines,
     rankProgression,
     startVsCurrent,
-    citations
+    citations,
+    shareOfVoice,
+    radar,
+    estMonthlyVisits,
+    visitsDeltaPct,
+    referralTraffic,
+    competitors,
+    competitorRank,
+    milestones,
+    milestonesHit
   };
 }
 async function buildKeywordRankings(clientId) {
@@ -3644,7 +3765,7 @@ async function buildKeywordRankings(clientId) {
     };
   });
 }
-var PROVIDER_LABELS;
+var PROVIDER_LABELS, VISITS_PER_MENTION;
 var init_clientPortalData = __esm({
   "server/clientPortalData.ts"() {
     "use strict";
@@ -3657,6 +3778,7 @@ var init_clientPortalData = __esm({
       gemini: "Google Gemini",
       perplexity: "Perplexity"
     };
+    VISITS_PER_MENTION = 30;
   }
 });
 
