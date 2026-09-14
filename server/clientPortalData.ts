@@ -38,6 +38,25 @@ export function providerLabel(provider: string): string {
   return PROVIDER_LABELS[provider] ?? provider;
 }
 
+/** Map a search-intent code (or already-friendly value) to a human label. */
+const INTENT_LABELS: Record<string, string> = {
+  i: "Informational",
+  n: "Navigational",
+  c: "Commercial",
+  t: "Transactional",
+};
+export function intentLabel(intent: string | null | undefined): string | null {
+  if (!intent) return null;
+  // Semrush encodes intent as one or more single letters (e.g. "I", "I,T").
+  const parts = intent
+    .split(/[,\s/]+/)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+  if (!parts.length) return null;
+  const labels = parts.map((p) => INTENT_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1)));
+  return Array.from(new Set(labels)).join(" / ");
+}
+
 export async function getPortalMe(clientId: number, role: string, email: string) {
   const d = await db();
   const [client] = await d
@@ -405,6 +424,70 @@ export async function getPortalServicePlan(clientId: number) {
  * per-client. Everything degrades gracefully: `hasAiData`/`hasKeywordData` tell the UI which
  * sections have real numbers to show.
  */
+/**
+ * A domain-level SEO snapshot shown on the portal Performance page. Stored on
+ * `clients.seoOverview` as JSON (e.g. captured from Semrush) with three optional sections.
+ */
+export type SeoOverviewSnapshot = {
+  source?: string;
+  updatedAt?: string;
+  domainOverview?: {
+    authorityScore?: number;
+    organicTraffic?: number;
+    organicTrafficLabel?: string;
+    organicKeywords?: number;
+    organicKeywordsLabel?: string;
+    referringDomains?: number;
+    backlinks?: number;
+    trafficShare?: string;
+    aiVisibility?: number;
+    aiMentions?: number;
+    aiCitedPages?: number;
+    engines?: { label: string; mentions: number; citedPages: number }[];
+    topCitedSources?: { domain: string; mentions: number }[];
+  } | null;
+  siteAudit?: {
+    siteHealth?: number;
+    pagesCrawled?: number;
+    errors?: number;
+    warnings?: number;
+    broken?: number;
+    aiSearchHealth?: number;
+    issues?: { label: string; count: number; severity?: string }[];
+  } | null;
+  backlinks?: {
+    referringDomains?: number;
+    referringDomainsDelta?: string;
+    total?: number;
+    totalDelta?: string;
+    authorityScore?: number;
+    follow?: number;
+    nofollow?: number;
+    followPct?: number;
+    topAnchors?: { anchor: string; count?: number }[];
+    topCountries?: { country: string; domains: number }[];
+    categories?: { name: string; domains: number }[];
+  } | null;
+};
+
+function parseSeoOverview(raw: string | null): {
+  domainOverview: SeoOverviewSnapshot["domainOverview"] | null;
+  siteAudit: SeoOverviewSnapshot["siteAudit"] | null;
+  backlinks: SeoOverviewSnapshot["backlinks"] | null;
+} {
+  if (!raw) return { domainOverview: null, siteAudit: null, backlinks: null };
+  try {
+    const parsed = JSON.parse(raw) as SeoOverviewSnapshot;
+    return {
+      domainOverview: parsed.domainOverview ?? null,
+      siteAudit: parsed.siteAudit ?? null,
+      backlinks: parsed.backlinks ?? null,
+    };
+  } catch {
+    return { domainOverview: null, siteAudit: null, backlinks: null };
+  }
+}
+
 export async function getPortalPerformance(clientId: number) {
   const d = await db();
 
@@ -435,8 +518,15 @@ export async function getPortalPerformance(clientId: number) {
 
   const keywords = await buildKeywordRankings(clientId);
 
+  // Domain-level SEO snapshot (domain overview, site audit, backlinks) — e.g. from Semrush.
+  const seo = parseSeoOverview(client.seoOverview);
+
   return {
     profile,
+    domainOverview: seo.domainOverview,
+    siteAudit: seo.siteAudit,
+    backlinks: seo.backlinks,
+    hasSeoData: !!(seo.domainOverview || seo.siteAudit || seo.backlinks),
     hasAiData: aiVisibility.hasAiData,
     hasKeywordData: keywords.length > 0,
     visibilityScore: aiVisibility.visibilityScore,
@@ -749,6 +839,8 @@ async function buildKeywordRankings(clientId: number) {
       position: current,
       prev,
       status,
+      volume: k.searchVolume ?? null,
+      intent: intentLabel(k.intent),
     };
   });
 }

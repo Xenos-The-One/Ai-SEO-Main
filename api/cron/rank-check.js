@@ -75,7 +75,10 @@ var init_schema = __esm({
       socialLinkedin: varchar("socialLinkedin", { length: 500 }),
       socialTwitter: varchar("socialTwitter", { length: 500 }),
       // Service plan / deliverables shown on the client portal (JSON array of plan items).
-      servicePlan: text("servicePlan")
+      servicePlan: text("servicePlan"),
+      // Domain-level SEO snapshot shown on the client portal (JSON: domain overview,
+      // site audit summary, and backlink profile — e.g. sourced from Semrush).
+      seoOverview: text("seoOverview")
     });
     clientPortalUsers = pgTable("clientPortalUsers", {
       id: serial("id").primaryKey(),
@@ -503,6 +506,10 @@ var init_schema = __esm({
       locationName: varchar("locationName", { length: 255 }).default("United States").notNull(),
       languageName: varchar("languageName", { length: 100 }).default("English").notNull(),
       device: text("device", { enum: ["desktop", "mobile"] }).default("desktop").notNull(),
+      searchVolume: integer("searchVolume"),
+      // monthly search volume, if known
+      intent: varchar("intent", { length: 40 }),
+      // search intent: informational | navigational | commercial | transactional (or a combined label)
       isActive: integer("isActive").default(1).notNull(),
       // 0/1
       createdAt: timestamp("createdAt").defaultNow().notNull()

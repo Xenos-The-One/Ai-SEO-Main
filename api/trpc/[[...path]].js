@@ -161,7 +161,10 @@ var init_schema = __esm({
       socialLinkedin: varchar("socialLinkedin", { length: 500 }),
       socialTwitter: varchar("socialTwitter", { length: 500 }),
       // Service plan / deliverables shown on the client portal (JSON array of plan items).
-      servicePlan: text("servicePlan")
+      servicePlan: text("servicePlan"),
+      // Domain-level SEO snapshot shown on the client portal (JSON: domain overview,
+      // site audit summary, and backlink profile — e.g. sourced from Semrush).
+      seoOverview: text("seoOverview")
     });
     clientPortalUsers = pgTable("clientPortalUsers", {
       id: serial("id").primaryKey(),
@@ -589,6 +592,10 @@ var init_schema = __esm({
       locationName: varchar("locationName", { length: 255 }).default("United States").notNull(),
       languageName: varchar("languageName", { length: 100 }).default("English").notNull(),
       device: text("device", { enum: ["desktop", "mobile"] }).default("desktop").notNull(),
+      searchVolume: integer("searchVolume"),
+      // monthly search volume, if known
+      intent: varchar("intent", { length: 40 }),
+      // search intent: informational | navigational | commercial | transactional (or a combined label)
       isActive: integer("isActive").default(1).notNull(),
       // 0/1
       createdAt: timestamp("createdAt").defaultNow().notNull()
@@ -3276,6 +3283,7 @@ __export(clientPortalData_exports, {
   getPortalPerformance: () => getPortalPerformance,
   getPortalServicePlan: () => getPortalServicePlan,
   getPortalStats: () => getPortalStats,
+  intentLabel: () => intentLabel,
   portalApproveContent: () => portalApproveContent,
   portalRequestRevision: () => portalRequestRevision,
   providerLabel: () => providerLabel
@@ -3288,6 +3296,13 @@ async function db5() {
 }
 function providerLabel(provider) {
   return PROVIDER_LABELS[provider] ?? provider;
+}
+function intentLabel(intent) {
+  if (!intent) return null;
+  const parts = intent.split(/[,\s/]+/).map((p) => p.trim().toLowerCase()).filter(Boolean);
+  if (!parts.length) return null;
+  const labels = parts.map((p) => INTENT_LABELS[p] ?? p.charAt(0).toUpperCase() + p.slice(1));
+  return Array.from(new Set(labels)).join(" / ");
 }
 async function getPortalMe(clientId, role, email) {
   const d = await db5();
@@ -3507,6 +3522,19 @@ async function getPortalServicePlan(clientId) {
   });
   return { hasPlan: true, monthLabel: currentMonthLabel(), items: enriched };
 }
+function parseSeoOverview(raw) {
+  if (!raw) return { domainOverview: null, siteAudit: null, backlinks: null };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      domainOverview: parsed.domainOverview ?? null,
+      siteAudit: parsed.siteAudit ?? null,
+      backlinks: parsed.backlinks ?? null
+    };
+  } catch {
+    return { domainOverview: null, siteAudit: null, backlinks: null };
+  }
+}
 async function getPortalPerformance(clientId) {
   const d = await db5();
   const [client] = await d.select().from(clients).where(eq20(clients.id, clientId)).limit(1);
@@ -3530,8 +3558,13 @@ async function getPortalPerformance(clientId) {
     aiVisibility = await buildAiVisibility(brandId, profile.name);
   }
   const keywords = await buildKeywordRankings(clientId);
+  const seo = parseSeoOverview(client.seoOverview);
   return {
     profile,
+    domainOverview: seo.domainOverview,
+    siteAudit: seo.siteAudit,
+    backlinks: seo.backlinks,
+    hasSeoData: !!(seo.domainOverview || seo.siteAudit || seo.backlinks),
     hasAiData: aiVisibility.hasAiData,
     hasKeywordData: keywords.length > 0,
     visibilityScore: aiVisibility.visibilityScore,
@@ -3761,11 +3794,13 @@ async function buildKeywordRankings(clientId) {
       location: k.locationName,
       position: current,
       prev,
-      status
+      status,
+      volume: k.searchVolume ?? null,
+      intent: intentLabel(k.intent)
     };
   });
 }
-var PROVIDER_LABELS, VISITS_PER_MENTION;
+var PROVIDER_LABELS, INTENT_LABELS, VISITS_PER_MENTION;
 var init_clientPortalData = __esm({
   "server/clientPortalData.ts"() {
     "use strict";
@@ -3777,6 +3812,12 @@ var init_clientPortalData = __esm({
       claude: "Claude",
       gemini: "Google Gemini",
       perplexity: "Perplexity"
+    };
+    INTENT_LABELS = {
+      i: "Informational",
+      n: "Navigational",
+      c: "Commercial",
+      t: "Transactional"
     };
     VISITS_PER_MENTION = 30;
   }

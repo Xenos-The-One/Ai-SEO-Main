@@ -23,6 +23,11 @@ import {
   Users,
   Target,
   Gauge,
+  Globe,
+  Link2,
+  AlertTriangle,
+  KeyRound,
+  Stethoscope,
 } from "lucide-react";
 import {
   BarChart,
@@ -148,6 +153,17 @@ export default function PortalPerformance() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Search & domain overview (from Semrush) */}
+        {perf.domainOverview && <DomainOverview data={perf.domainOverview} />}
+
+        {/* Site audit + backlink profile */}
+        {(perf.siteAudit || perf.backlinks) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {perf.siteAudit && <SiteAuditCard data={perf.siteAudit} />}
+            {perf.backlinks && <BacklinksCard data={perf.backlinks} />}
+          </div>
+        )}
 
         {!perf.hasAiData && (
           <Card className="border-dashed">
@@ -448,6 +464,8 @@ export default function PortalPerformance() {
                   <thead>
                     <tr className="text-left text-muted-foreground border-b">
                       <th className="py-2 pr-4 font-medium">Keyword</th>
+                      <th className="py-2 pr-4 font-medium">Intent</th>
+                      <th className="py-2 pr-4 font-medium">Volume</th>
                       <th className="py-2 pr-4 font-medium">Location</th>
                       <th className="py-2 pr-4 font-medium">Position</th>
                       <th className="py-2 pr-4 font-medium">Prev</th>
@@ -458,6 +476,8 @@ export default function PortalPerformance() {
                     {perf.keywords.map((k, i) => (
                       <tr key={i} className="border-b last:border-0">
                         <td className="py-3 pr-4 font-medium">{k.keyword}</td>
+                        <td className="py-3 pr-4">{k.intent ? <IntentPill intent={k.intent} /> : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">{k.volume != null ? k.volume.toLocaleString() : "—"}</td>
                         <td className="py-3 pr-4 text-muted-foreground">{k.location}</td>
                         <td className="py-3 pr-4">
                           <Badge className="bg-emerald-500/10 text-emerald-600">{rankLabel(k.position)}</Badge>
@@ -677,6 +697,207 @@ function StatusPill({ status }: { status: string }) {
     New: "text-blue-500",
   };
   return <span className={`text-xs font-medium ${map[status] || "text-muted-foreground"}`}>{status}</span>;
+}
+
+function IntentPill({ intent }: { intent: string }) {
+  const key = intent.split(" ")[0].toLowerCase();
+  const map: Record<string, string> = {
+    informational: "bg-blue-500/10 text-blue-600",
+    navigational: "bg-purple-500/10 text-purple-600",
+    commercial: "bg-amber-500/10 text-amber-600",
+    transactional: "bg-emerald-500/10 text-emerald-600",
+  };
+  return <Badge className={`text-xs font-medium ${map[key] || "bg-muted text-muted-foreground"}`}>{intent}</Badge>;
+}
+
+/** A compact labeled metric tile used across the Semrush snapshot sections. */
+function Metric({ label, value, sub, delta }: { label: string; value: string; sub?: string; delta?: string }) {
+  return (
+    <div className="rounded-lg border p-4">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-2xl font-bold mt-1">{value}</p>
+      {delta && <p className="text-xs text-emerald-600 mt-0.5">{delta}</p>}
+      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function DomainOverview({ data }: { data: any }) {
+  const has = (v: any) => v != null;
+  const fmt = (v: any) => (v == null ? "—" : Number(v).toLocaleString());
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Globe className="h-4 w-4" /> Search &amp; Domain Overview
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Your organic search footprint and AI-search visibility{data.source ? ` · ${data.source}` : ""}</p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <Metric label="Authority Score" value={has(data.authorityScore) ? String(data.authorityScore) : "—"} />
+          <Metric label="Organic Traffic" value={data.organicTrafficLabel || fmt(data.organicTraffic)} sub="visits / mo" />
+          <Metric label="Organic Keywords" value={data.organicKeywordsLabel || fmt(data.organicKeywords)} />
+          <Metric label="Referring Domains" value={fmt(data.referringDomains)} />
+          <Metric label="Backlinks" value={fmt(data.backlinks)} />
+          <Metric label="Traffic Share" value={data.trafficShare || "—"} />
+        </div>
+
+        {(has(data.aiVisibility) || has(data.aiMentions) || (data.engines?.length ?? 0) > 0) && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="h-4 w-4 text-indigo-500" />
+              <h3 className="text-sm font-semibold">AI Search Visibility</h3>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-3 lg:col-span-2">
+                <Metric label="AI Visibility" value={has(data.aiVisibility) ? String(data.aiVisibility) : "—"} />
+                <Metric label="Mentions" value={fmt(data.aiMentions)} />
+                <Metric label="Cited Pages" value={fmt(data.aiCitedPages)} />
+              </div>
+              {(data.engines?.length ?? 0) > 0 && (
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs text-muted-foreground mb-2">Mentions by AI engine</p>
+                  <div className="space-y-1.5">
+                    {data.engines.map((e: any) => (
+                      <div key={e.label} className="flex items-center justify-between text-sm">
+                        <span>{e.label}</span>
+                        <span className="text-muted-foreground">
+                          <span className="font-medium text-foreground">{e.mentions}</span> mentions · {e.citedPages} cited
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            {(data.topCitedSources?.length ?? 0) > 0 && (
+              <p className="text-xs text-muted-foreground mt-3">
+                Top cited sources: {data.topCitedSources.map((s: any) => `${s.domain} (${s.mentions})`).join(" · ")}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SiteAuditCard({ data }: { data: any }) {
+  const health = typeof data.siteHealth === "number" ? data.siteHealth : null;
+  const healthColor = health == null ? "text-muted-foreground" : health >= 90 ? "text-emerald-600" : health >= 70 ? "text-amber-600" : "text-red-500";
+  const sevColor = (s?: string) =>
+    s === "error" ? "bg-red-500/10 text-red-600" : s === "warning" ? "bg-amber-500/10 text-amber-600" : "bg-blue-500/10 text-blue-600";
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Stethoscope className="h-4 w-4" /> Site Audit
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Technical health of your website</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-6">
+          <div className="text-center">
+            <p className={`text-4xl font-bold ${healthColor}`}>{health == null ? "—" : `${health}%`}</p>
+            <p className="text-xs text-muted-foreground mt-1">Site Health</p>
+          </div>
+          <div className="flex-1 grid grid-cols-2 gap-2 text-sm">
+            {data.pagesCrawled != null && (
+              <div className="flex justify-between"><span className="text-muted-foreground">Pages crawled</span><span className="font-medium">{data.pagesCrawled.toLocaleString()}</span></div>
+            )}
+            {data.broken != null && (
+              <div className="flex justify-between"><span className="text-muted-foreground">Broken</span><span className="font-medium">{data.broken.toLocaleString()}</span></div>
+            )}
+            {data.errors != null && (
+              <div className="flex justify-between"><span className="text-muted-foreground">Errors</span><span className="font-medium text-red-500">{data.errors.toLocaleString()}</span></div>
+            )}
+            {data.warnings != null && (
+              <div className="flex justify-between"><span className="text-muted-foreground">Warnings</span><span className="font-medium text-amber-600">{data.warnings.toLocaleString()}</span></div>
+            )}
+            {data.aiSearchHealth != null && (
+              <div className="flex justify-between col-span-2"><span className="text-muted-foreground">AI Search Health</span><span className="font-medium text-emerald-600">{data.aiSearchHealth}%</span></div>
+            )}
+          </div>
+        </div>
+        {(data.issues?.length ?? 0) > 0 && (
+          <div className="space-y-2 pt-2 border-t">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> Top issues</p>
+            {data.issues.slice(0, 6).map((it: any) => (
+              <div key={it.label} className="flex items-center justify-between text-sm">
+                <span>{it.label}</span>
+                <Badge className={`text-xs ${sevColor(it.severity)}`}>{it.count.toLocaleString()}</Badge>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BacklinksCard({ data }: { data: any }) {
+  const follow = data.follow ?? null;
+  const nofollow = data.nofollow ?? null;
+  const total = (follow ?? 0) + (nofollow ?? 0);
+  const followPct = data.followPct != null ? data.followPct : total > 0 ? Math.round(((follow ?? 0) / total) * 100) : null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Link2 className="h-4 w-4" /> Backlink Profile
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Who links to you and how authoritative they are</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          <Metric label="Referring Domains" value={data.referringDomains != null ? data.referringDomains.toLocaleString() : "—"} delta={data.referringDomainsDelta} />
+          <Metric label="Backlinks" value={data.total != null ? data.total.toLocaleString() : "—"} delta={data.totalDelta} />
+          <Metric label="Authority Score" value={data.authorityScore != null ? String(data.authorityScore) : "—"} />
+        </div>
+
+        {followPct != null && (
+          <div>
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-muted-foreground">Follow {followPct}%</span>
+              <span className="text-muted-foreground">Nofollow {100 - followPct}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden flex">
+              <div className="h-full bg-emerald-500" style={{ width: `${followPct}%` }} />
+              <div className="h-full bg-muted-foreground/40" style={{ width: `${100 - followPct}%` }} />
+            </div>
+          </div>
+        )}
+
+        {(data.topAnchors?.length ?? 0) > 0 && (
+          <div className="pt-2 border-t">
+            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1"><KeyRound className="h-3.5 w-3.5" /> Top anchors</p>
+            <div className="flex flex-wrap gap-2">
+              {data.topAnchors.slice(0, 6).map((a: any, i: number) => (
+                <Badge key={i} variant="outline" className="text-xs font-normal">
+                  {a.anchor}{a.count != null ? ` · ${a.count.toLocaleString()}` : ""}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(data.topCountries?.length ?? 0) > 0 && (
+          <div className="pt-2 border-t">
+            <p className="text-xs font-medium text-muted-foreground mb-2">Top referring countries</p>
+            <div className="space-y-1.5">
+              {data.topCountries.slice(0, 5).map((c: any) => (
+                <div key={c.country} className="flex items-center justify-between text-sm">
+                  <span>{c.country}</span>
+                  <span className="text-muted-foreground">{c.domains.toLocaleString()} domains</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function ServicePlan({ plan }: { plan: any }) {
