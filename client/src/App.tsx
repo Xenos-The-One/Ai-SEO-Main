@@ -120,6 +120,9 @@ function Router() {
       <Route path="/portal/content" component={PortalContent} />
       <Route path="/portal/calendar" component={PortalCalendar} />
       <Route path="/portal/performance" component={PortalPerformance} />
+      {/* Per-client branded login. Must stay AFTER the reserved routes above so
+          they win, and BEFORE the /portal catch-all. */}
+      <Route path="/portal/:slug" component={PortalLogin} />
       <Route path="/portal" component={() => { window.location.href = "/portal/login"; return null; }} />
       
       {/* All other routes go through dashboard layout */}

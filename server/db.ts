@@ -130,10 +130,88 @@ export async function incrementUserTokenVersion(userId: number): Promise<number>
 }
 
 // Client management queries
+
+/** Route segments under /portal that a client slug must never collide with. */
+const RESERVED_PORTAL_SLUGS = new Set([
+  "login",
+  "logout",
+  "dashboard",
+  "content",
+  "calendar",
+  "performance",
+  "approvals",
+  "accept-invitation",
+  "portal",
+  "admin",
+  "api",
+]);
+
+/** Turn a client name into a URL-safe slug base (lowercase, hyphenated, ASCII). */
+export function slugify(input: string): string {
+  const base = input
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // strip diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return base || "client";
+}
+
+/** Generate a slug from `name` that is unique across clients and avoids reserved words. */
+export async function generateUniqueClientSlug(name: string): Promise<string> {
+  const db = await getDb();
+  const base = slugify(name);
+  let candidate = RESERVED_PORTAL_SLUGS.has(base) ? `${base}-portal` : base;
+  if (!db) return candidate;
+  for (let i = 0; i < 50; i++) {
+    const existing = await db.select({ id: clients.id }).from(clients).where(eq(clients.slug, candidate)).limit(1);
+    if (existing.length === 0) return candidate;
+    candidate = `${base}-${i + 2}`;
+  }
+  // Extremely unlikely fallback: suffix with a short random token.
+  return `${base}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export async function getClientBySlug(slug: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(clients).where(eq(clients.slug, slug)).limit(1);
+  return decryptClient(result[0]);
+}
+
+/** Ensure a client has a portal slug, generating and persisting one if missing. Returns the slug. */
+export async function ensureClientSlug(id: number): Promise<string> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getClientById(id);
+  if (existing?.slug) return existing.slug;
+  const slug = await generateUniqueClientSlug(existing?.name ?? "client");
+  await db.update(clients).set({ slug, updatedAt: new Date() }).where(eq(clients.id, id));
+  return slug;
+}
+
+/** Public (unauthenticated) portal branding lookup used by the branded login page. */
+export async function getPublicBrandingBySlug(slug: string) {
+  const client = await getClientBySlug(slug);
+  if (!client) return null;
+  const branding = await getPortalBranding(client.id);
+  return {
+    slug: client.slug,
+    clientName: client.name,
+    portalName: branding?.portalName || null,
+    logoUrl: branding?.logoUrl || null,
+    primaryColor: branding?.primaryColor || null,
+    secondaryColor: branding?.secondaryColor || null,
+    welcomeMessage: branding?.welcomeMessage || null,
+  };
+}
+
 export async function createClient(client: InsertClient) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const values = { ...client, websitePassword: encryptSecret(client.websitePassword) };
+  const slug = client.slug || (await generateUniqueClientSlug(client.name));
+  const values = { ...client, slug, websitePassword: encryptSecret(client.websitePassword) };
   const result = await db.insert(clients).values(values).returning({ id: clients.id });
   return result[0].id;
 }

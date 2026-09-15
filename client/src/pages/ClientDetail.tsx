@@ -714,11 +714,27 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
   const [directPassword, setDirectPassword] = useState("");
   const [directRole, setDirectRole] = useState<"client_admin" | "client_viewer">("client_admin");
 
+  const utils = trpc.useUtils();
   const { data: portalUsers, refetch } = trpc.clientPortal.listUsers.useQuery({ clientId });
+  const { data: client } = trpc.clients.getById.useQuery({ id: clientId });
   const createInvitationMutation = trpc.clientPortal.createInvitation.useMutation();
   const deactivateUserMutation = trpc.clientPortal.deactivateUser.useMutation();
   const createDirectLoginMutation = trpc.clientPortal.createDirectLogin.useMutation();
   const openAsClientMutation = trpc.clientPortal.openAsClient.useMutation();
+  const ensureSlugMutation = trpc.clients.ensurePortalSlug.useMutation();
+
+  const portalSlug = client?.slug;
+  const portalUrl = portalSlug ? `${window.location.origin}/portal/${portalSlug}` : null;
+
+  const handleGeneratePortalLink = async () => {
+    try {
+      await ensureSlugMutation.mutateAsync({ clientId });
+      await utils.clients.getById.invalidate({ id: clientId });
+      toast.success("Portal link created");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create portal link");
+    }
+  };
 
   const handleCreateDirectLogin = async () => {
     if (!directEmail || !directName || directPassword.length < 8) {
@@ -835,21 +851,43 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
         <CardContent>
           <div className="bg-muted/30 p-4 rounded-lg">
             <h4 className="font-medium mb-2">Portal URL</h4>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-background px-3 py-2 rounded text-sm">
-                {window.location.origin}/portal
-              </code>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/portal`);
-                  toast.success("Portal URL copied");
-                }}
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-            </div>
+            {portalUrl ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-background px-3 py-2 rounded text-sm">
+                    {portalUrl}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(portalUrl);
+                      toast.success("Portal URL copied");
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {clientName}'s branded login page. Share this link with their team.
+                </p>
+              </>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  No branded portal link yet. Generate one to give {clientName} a
+                  dedicated, white-labeled login page.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGeneratePortalLink}
+                  disabled={ensureSlugMutation.isPending}
+                >
+                  {ensureSlugMutation.isPending ? "Generating…" : "Generate link"}
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

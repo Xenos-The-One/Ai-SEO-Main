@@ -201,12 +201,25 @@ export const appRouter = router({
         socialTwitter: z.string().optional(),
         monthlyBudget: z.string().optional(),
         budgetAlertThreshold: z.number().min(0).max(100).optional(),
+        slug: z.string()
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug may contain only lowercase letters, numbers, and hyphens")
+          .min(1)
+          .max(100)
+          .optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...updates } = input;
         await assertClient(ctx.user.id, id);
         await updateClient(id, updates);
         return { success: true };
+      }),
+    // Generate (and persist) a portal slug for a client if it doesn't have one yet.
+    ensurePortalSlug: protectedProcedure
+      .input(z.object({ clientId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await assertClient(ctx.user.id, input.clientId);
+        const { ensureClientSlug } = await import("./db");
+        return { slug: await ensureClientSlug(input.clientId) };
       }),
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -751,6 +764,15 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const { loginClientPortalUser } = await import("./clientPortalAuth");
         return await loginClientPortalUser(input.email, input.password);
+      }),
+
+    // Public branding for a client's branded login page (/portal/:slug). No auth:
+    // returns only presentational fields, never any content or user data.
+    publicBranding: publicProcedure
+      .input(z.object({ slug: z.string().min(1).max(100) }))
+      .query(async ({ input }) => {
+        const { getPublicBrandingBySlug } = await import("./db");
+        return await getPublicBrandingBySlug(input.slug);
       }),
     
     // Create an active portal login directly (no invitation round-trip).

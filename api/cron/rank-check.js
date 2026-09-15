@@ -37,6 +37,8 @@ var init_schema = __esm({
     clients = pgTable("clients", {
       id: serial("id").primaryKey(),
       name: varchar("name", { length: 255 }).notNull(),
+      /** URL-safe identifier for the client's branded portal link (/portal/:slug). Unique when set. */
+      slug: varchar("slug", { length: 100 }).unique(),
       email: varchar("email", { length: 320 }),
       company: varchar("company", { length: 255 }),
       notes: text("notes"),

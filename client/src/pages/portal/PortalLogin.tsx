@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,16 @@ import { LogIn } from "lucide-react";
 export default function PortalLogin() {
   const [, setLocation] = useLocation();
 
+  // Branded per-client login is served at /portal/:slug. The reserved portal
+  // routes are matched earlier in the Switch, so any slug here is a client slug.
+  const [matchedSlug, params] = useRoute("/portal/:slug");
+  const slug = matchedSlug ? params?.slug : undefined;
+
+  const { data: branding } = trpc.clientPortal.publicBranding.useQuery(
+    { slug: slug! },
+    { enabled: !!slug, retry: false },
+  );
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -20,9 +30,9 @@ export default function PortalLogin() {
       // Store token in localStorage
       localStorage.setItem("client_portal_token", data.token);
       localStorage.setItem("client_portal_user", JSON.stringify(data.user));
-      
+
       // Login successful
-      
+
       setLocation("/portal/dashboard");
     },
     onError: (error) => {
@@ -37,17 +47,32 @@ export default function PortalLogin() {
     loginMutation.mutate({ email, password });
   };
 
+  const primaryColor = branding?.primaryColor || undefined;
+  const heading = branding?.portalName || branding?.clientName || "Client Portal";
+  const subheading = branding?.welcomeMessage || "Sign in to view your content and reports";
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted p-4">
       <Card className="w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
-            <LogIn className="h-8 w-8 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold">Client Portal</h1>
-          <p className="text-muted-foreground mt-2">
-            Sign in to view your content and reports
-          </p>
+          {branding?.logoUrl ? (
+            <img
+              src={branding.logoUrl}
+              alt={heading}
+              className="mx-auto mb-4 h-16 w-auto object-contain"
+            />
+          ) : (
+            <div
+              className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4"
+              style={primaryColor ? { backgroundColor: `${primaryColor}1a` } : undefined}
+            >
+              <LogIn className="h-8 w-8 text-primary" style={primaryColor ? { color: primaryColor } : undefined} />
+            </div>
+          )}
+          <h1 className="text-3xl font-bold" style={primaryColor ? { color: primaryColor } : undefined}>
+            {heading}
+          </h1>
+          <p className="text-muted-foreground mt-2">{subheading}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -81,6 +106,7 @@ export default function PortalLogin() {
             type="submit"
             className="w-full"
             disabled={isLoading}
+            style={primaryColor ? { backgroundColor: primaryColor } : undefined}
           >
             {isLoading ? "Signing in..." : "Sign In"}
           </Button>

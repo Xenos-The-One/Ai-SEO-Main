@@ -123,6 +123,8 @@ var init_schema = __esm({
     clients = pgTable("clients", {
       id: serial("id").primaryKey(),
       name: varchar("name", { length: 255 }).notNull(),
+      /** URL-safe identifier for the client's branded portal link (/portal/:slug). Unique when set. */
+      slug: varchar("slug", { length: 100 }).unique(),
       email: varchar("email", { length: 320 }),
       company: varchar("company", { length: 255 }),
       notes: text("notes"),
@@ -737,8 +739,11 @@ __export(db_exports, {
   deleteRepurposedContent: () => deleteRepurposedContent,
   deleteTemplate: () => deleteTemplate,
   deleteWebhookConfig: () => deleteWebhookConfig,
+  ensureClientSlug: () => ensureClientSlug,
+  generateUniqueClientSlug: () => generateUniqueClientSlug,
   getAllWebhooks: () => getAllWebhooks,
   getClientById: () => getClientById,
+  getClientBySlug: () => getClientBySlug,
   getClientsByUser: () => getClientsByUser,
   getContentAnalytics: () => getContentAnalytics,
   getContentBriefById: () => getContentBriefById,
@@ -753,6 +758,7 @@ __export(db_exports, {
   getContentWithClient: () => getContentWithClient,
   getDb: () => getDb,
   getPortalBranding: () => getPortalBranding,
+  getPublicBrandingBySlug: () => getPublicBrandingBySlug,
   getPublicTemplates: () => getPublicTemplates,
   getPublishLogs: () => getPublishLogs,
   getQualityScore: () => getQualityScore,
@@ -766,6 +772,7 @@ __export(db_exports, {
   incrementUserTokenVersion: () => incrementUserTokenVersion,
   recordAnalytics: () => recordAnalytics,
   saveQualityScore: () => saveQualityScore,
+  slugify: () => slugify,
   updateAnalytics: () => updateAnalytics,
   updateClient: () => updateClient,
   updateCommentStatus: () => updateCommentStatus,
@@ -875,10 +882,56 @@ async function incrementUserTokenVersion(userId) {
   const [row] = await db6.update(users).set({ tokenVersion: sql`${users.tokenVersion} + 1` }).where(eq(users.id, userId)).returning({ tokenVersion: users.tokenVersion });
   return row.tokenVersion;
 }
+function slugify(input) {
+  const base = input.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  return base || "client";
+}
+async function generateUniqueClientSlug(name) {
+  const db6 = await getDb();
+  const base = slugify(name);
+  let candidate = RESERVED_PORTAL_SLUGS.has(base) ? `${base}-portal` : base;
+  if (!db6) return candidate;
+  for (let i = 0; i < 50; i++) {
+    const existing = await db6.select({ id: clients.id }).from(clients).where(eq(clients.slug, candidate)).limit(1);
+    if (existing.length === 0) return candidate;
+    candidate = `${base}-${i + 2}`;
+  }
+  return `${base}-${Math.random().toString(36).slice(2, 7)}`;
+}
+async function getClientBySlug(slug) {
+  const db6 = await getDb();
+  if (!db6) return void 0;
+  const result = await db6.select().from(clients).where(eq(clients.slug, slug)).limit(1);
+  return decryptClient(result[0]);
+}
+async function ensureClientSlug(id) {
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const existing = await getClientById(id);
+  if (existing?.slug) return existing.slug;
+  const slug = await generateUniqueClientSlug(existing?.name ?? "client");
+  await db6.update(clients).set({ slug, updatedAt: /* @__PURE__ */ new Date() }).where(eq(clients.id, id));
+  return slug;
+}
+async function getPublicBrandingBySlug(slug) {
+  const client = await getClientBySlug(slug);
+  if (!client) return null;
+  const branding = await getPortalBranding(client.id);
+  return {
+    slug: client.slug,
+    clientName: client.name,
+    portalName: branding?.portalName || null,
+    logoUrl: branding?.logoUrl || null,
+    primaryColor: branding?.primaryColor || null,
+    secondaryColor: branding?.secondaryColor || null,
+    welcomeMessage: branding?.welcomeMessage || null
+  };
+}
 async function createClient(client) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const values = { ...client, websitePassword: encryptSecret(client.websitePassword) };
+  const slug = client.slug || await generateUniqueClientSlug(client.name);
+  const values = { ...client, slug, websitePassword: encryptSecret(client.websitePassword) };
   const result = await db6.insert(clients).values(values).returning({ id: clients.id });
   return result[0].id;
 }
@@ -1166,7 +1219,7 @@ async function upsertPortalBranding(data) {
     return { id: result[0].id, ...data };
   }
 }
-var _db;
+var _db, RESERVED_PORTAL_SLUGS;
 var init_db = __esm({
   "server/db.ts"() {
     "use strict";
@@ -1174,6 +1227,19 @@ var init_db = __esm({
     init_env();
     init_crypto();
     _db = null;
+    RESERVED_PORTAL_SLUGS = /* @__PURE__ */ new Set([
+      "login",
+      "logout",
+      "dashboard",
+      "content",
+      "calendar",
+      "performance",
+      "approvals",
+      "accept-invitation",
+      "portal",
+      "admin",
+      "api"
+    ]);
   }
 });
 
@@ -5071,12 +5137,12 @@ init_db();
 function markdownToHtml(md) {
   return md.replace(/^### (.*$)/gim, "<h3>$1</h3>").replace(/^## (.*$)/gim, "<h2>$1</h2>").replace(/^# (.*$)/gim, "<h1>$1</h1>").replace(/\*\*(.*?)\*\*/gim, "<strong>$1</strong>").replace(/\*(.*?)\*/gim, "<em>$1</em>").replace(/!\[([^\]]*)\]\(([^)]+)\)/gim, '<img src="$2" alt="$1" />').replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2">$1</a>').replace(/^- (.*$)/gim, "<li>$1</li>").replace(/(<li>[\s\S]*<\/li>)/gim, "<ul>$1</ul>").replace(/\n{2,}/g, "</p><p>").replace(/^(?!<[hul])/gim, "<p>").replace(/(?<![>])$/gim, "</p>").replace(/<p><\/p>/g, "").replace(/---/g, "<hr />");
 }
-function slugify(text2) {
+function slugify2(text2) {
   return text2.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").substring(0, 100);
 }
 function buildPlatformPayload(platform, content2, webhook) {
   const htmlContent = content2.content ? markdownToHtml(content2.content) : "";
-  const slug = slugify(content2.title);
+  const slug = slugify2(content2.title);
   const headers = { "Content-Type": "application/json" };
   let payload = {};
   let url = webhook.endpointUrl;
@@ -6105,7 +6171,7 @@ async function fetchGAPageMetrics(clientId, startDate, endDate, limit = 10) {
 async function fetchKeywordData(_clientId, _startDate, _endDate, _limit = 20) {
   return [];
 }
-function slugify2(title) {
+function slugify3(title) {
   return title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 function pathOf(url) {
@@ -6121,7 +6187,7 @@ function matchPage(item, pages) {
     const exact = pages.find((p) => pathOf(p.pagePath) === target);
     if (exact) return exact;
   }
-  const slug = slugify2(item.title);
+  const slug = slugify3(item.title);
   if (slug.length >= 3) {
     const bySlug = pages.find((p) => p.pagePath.toLowerCase().includes(slug));
     if (bySlug) return bySlug;
@@ -7297,12 +7363,19 @@ var appRouter = router({
       socialLinkedin: z24.string().optional(),
       socialTwitter: z24.string().optional(),
       monthlyBudget: z24.string().optional(),
-      budgetAlertThreshold: z24.number().min(0).max(100).optional()
+      budgetAlertThreshold: z24.number().min(0).max(100).optional(),
+      slug: z24.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug may contain only lowercase letters, numbers, and hyphens").min(1).max(100).optional()
     })).mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input;
       await assertClient(ctx.user.id, id);
       await updateClient(id, updates);
       return { success: true };
+    }),
+    // Generate (and persist) a portal slug for a client if it doesn't have one yet.
+    ensurePortalSlug: protectedProcedure.input(z24.object({ clientId: z24.number() })).mutation(async ({ ctx, input }) => {
+      await assertClient(ctx.user.id, input.clientId);
+      const { ensureClientSlug: ensureClientSlug2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      return { slug: await ensureClientSlug2(input.clientId) };
     }),
     delete: protectedProcedure.input(z24.object({ id: z24.number() })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.id);
@@ -7736,6 +7809,12 @@ You can now publish this content to the client's CMS via the Publishing page.`
     })).mutation(async ({ input }) => {
       const { loginClientPortalUser: loginClientPortalUser2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await loginClientPortalUser2(input.email, input.password);
+    }),
+    // Public branding for a client's branded login page (/portal/:slug). No auth:
+    // returns only presentational fields, never any content or user data.
+    publicBranding: publicProcedure.input(z24.object({ slug: z24.string().min(1).max(100) })).query(async ({ input }) => {
+      const { getPublicBrandingBySlug: getPublicBrandingBySlug2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      return await getPublicBrandingBySlug2(input.slug);
     }),
     // Create an active portal login directly (no invitation round-trip).
     createDirectLogin: protectedProcedure.input(z24.object({
