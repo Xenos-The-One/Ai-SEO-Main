@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { setPortalSession } from "@/lib/portalSession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -27,12 +28,8 @@ export default function PortalLogin() {
 
   const loginMutation = trpc.clientPortal.login.useMutation({
     onSuccess: (data) => {
-      // Store token in localStorage
-      localStorage.setItem("client_portal_token", data.token);
-      localStorage.setItem("client_portal_user", JSON.stringify(data.user));
-
-      // Login successful
-
+      // Store the session for this tab only (see lib/portalSession).
+      setPortalSession(data.token, data.user);
       setLocation("/portal/dashboard");
     },
     onError: (error) => {

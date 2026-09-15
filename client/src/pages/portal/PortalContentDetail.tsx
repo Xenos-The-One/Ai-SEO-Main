@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { getPortalToken, getPortalUserRaw } from "@/lib/portalSession";
 import { ArrowLeft, CheckCircle, XCircle, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
@@ -20,8 +21,8 @@ export default function PortalContentDetail() {
   const [note, setNote] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("client_portal_token");
-    const userData = localStorage.getItem("client_portal_user");
+    const token = getPortalToken();
+    const userData = getPortalUserRaw();
     
     if (!token || !userData) {
       setLocation("/portal/login");

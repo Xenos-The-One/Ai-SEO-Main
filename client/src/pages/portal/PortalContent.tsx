@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { getPortalToken, getPortalUserRaw } from "@/lib/portalSession";
 import { FileText, Search, Calendar, Eye, CheckCircle, Clock, XCircle } from "lucide-react";
 
 export default function PortalContent() {
@@ -14,8 +15,8 @@ export default function PortalContent() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   useEffect(() => {
-    const token = localStorage.getItem("client_portal_token");
-    const userData = localStorage.getItem("client_portal_user");
+    const token = getPortalToken();
+    const userData = getPortalUserRaw();
     
     if (!token || !userData) {
       setLocation("/portal/login");

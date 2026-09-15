@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { buildPortalSessionHash } from "@/lib/portalSession";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -763,10 +764,9 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
   const handleOpenPortal = async () => {
     try {
       const result = await openAsClientMutation.mutateAsync({ clientId });
-      // Seed the portal session for this browser, then open the portal.
-      localStorage.setItem("client_portal_token", result.token);
-      localStorage.setItem("client_portal_user", JSON.stringify(result.user));
-      window.open("/portal/dashboard", "_blank");
+      // Hand the session to the new tab via the URL hash (it gets its own tab-scoped
+      // sessionStorage), so previewing multiple clients at once doesn't clobber them.
+      window.open(`/portal/dashboard${buildPortalSessionHash(result.token, result.user)}`, "_blank");
     } catch (error: any) {
       toast.error(error.message || "Failed to open portal");
     }

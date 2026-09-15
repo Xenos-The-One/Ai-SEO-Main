@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { getPortalToken, getPortalUserRaw } from "@/lib/portalSession";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 
 export default function PortalCalendar() {
@@ -13,8 +14,8 @@ export default function PortalCalendar() {
   const [view, setView] = useState<"month" | "week">("month");
 
   useEffect(() => {
-    const token = localStorage.getItem("client_portal_token");
-    const userData = localStorage.getItem("client_portal_user");
+    const token = getPortalToken();
+    const userData = getPortalUserRaw();
     
     if (!token || !userData) {
       setLocation("/portal/login");

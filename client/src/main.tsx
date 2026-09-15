@@ -6,7 +6,11 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { LOGIN_PATH } from "./const";
+import { bootstrapPortalSessionFromUrl, clearPortalSession, getPortalToken } from "./lib/portalSession";
 import "./index.css";
+
+// Seed this tab's portal session from a preview hash / legacy storage before anything renders.
+bootstrapPortalSessionFromUrl();
 
 const queryClient = new QueryClient();
 
@@ -26,10 +30,7 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (window.location.pathname === target) return;
 
   if (onPortal) {
-    try {
-      localStorage.removeItem("client_portal_token");
-      localStorage.removeItem("client_portal_user");
-    } catch {}
+    clearPortalSession();
   }
 
   window.location.href = target;
@@ -62,7 +63,7 @@ const trpcClient = trpc.createClient({
         // agency session cookie. Agency pages keep using the cookie (no token attached).
         try {
           if (window.location.pathname.startsWith("/portal")) {
-            const token = localStorage.getItem("client_portal_token");
+            const token = getPortalToken();
             if (token) headers.set("authorization", `Bearer ${token}`);
           }
         } catch {}

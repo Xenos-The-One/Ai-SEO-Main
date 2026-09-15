@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { getPortalToken, getPortalUserRaw, clearPortalSession } from "@/lib/portalSession";
 import {
   Bot,
   Sparkles,
@@ -77,8 +78,8 @@ export default function PortalPerformance() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("client_portal_token");
-    const userData = localStorage.getItem("client_portal_user");
+    const token = getPortalToken();
+    const userData = getPortalUserRaw();
     if (!token || !userData) {
       setLocation("/portal/login");
       return;

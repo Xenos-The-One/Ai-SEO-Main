@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, Calendar, TrendingUp, LogOut, User } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { getPortalToken, getPortalUserRaw, clearPortalSession } from "@/lib/portalSession";
 
 export default function PortalDashboard() {
   const [, setLocation] = useLocation();
@@ -11,8 +12,8 @@ export default function PortalDashboard() {
 
   useEffect(() => {
     // Check if user is logged in
-    const token = localStorage.getItem("client_portal_token");
-    const userData = localStorage.getItem("client_portal_user");
+    const token = getPortalToken();
+    const userData = getPortalUserRaw();
 
     if (!token || !userData) {
       setLocation("/portal/login");
@@ -26,8 +27,7 @@ export default function PortalDashboard() {
   const { data: stats } = trpc.clientPortal.stats.useQuery(undefined, { enabled: !!user });
 
   const handleLogout = () => {
-    localStorage.removeItem("client_portal_token");
-    localStorage.removeItem("client_portal_user");
+    clearPortalSession();
     setLocation("/portal/login");
   };
 
