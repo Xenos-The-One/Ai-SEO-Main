@@ -21,11 +21,12 @@ import {
 } from "@/components/ui/sidebar";
 import { LOGIN_PATH } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, FileText, BarChart3, Zap, Calendar, CalendarDays, Layers, MessageSquare, TrendingUp, Copy, GitBranch, Sparkles, Webhook, ClipboardList, Shield, Bell, Search, Settings, UserPlus, RefreshCw, FlaskConical, Target, CheckCircle, Palette, Activity, Swords, Gauge, Share2, Bot, ChevronDown, ScanSearch, LineChart, Link2 } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, FileText, BarChart3, Zap, Calendar, CalendarDays, Layers, MessageSquare, TrendingUp, Copy, GitBranch, Sparkles, Webhook, ClipboardList, Shield, Bell, Search, Settings, UserPlus, RefreshCw, FlaskConical, Target, CheckCircle, Palette, Activity, Swords, Gauge, Share2, Bot, ChevronDown, ScanSearch, LineChart, Link2, Sun, Moon } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const menuGroups = [
   {
@@ -172,6 +173,7 @@ function DashboardLayoutContent({
   setSidebarWidth,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -304,6 +306,22 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3">
+            {toggleTheme && (
+              <button
+                onClick={toggleTheme}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <Moon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="text-sm group-data-[collapsible=icon]:hidden">
+                  {theme === "dark" ? "Light mode" : "Dark mode"}
+                </span>
+              </button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
