@@ -52,25 +52,36 @@ import {
   AreaChart,
   Area,
 } from "recharts";
+import {
+  CHART_GRID,
+  CHART_AXIS,
+  BAR_CURSOR,
+  LINE_CURSOR,
+  AreaGradient,
+  ChartTooltip,
+  ChartLegend,
+} from "@/components/portal/chart-kit";
 
-// Stable colors per engine so the line chart, bars and cards agree.
+// Stable, theme-aware colors per engine so the line chart, bars and cards agree.
+// The --series-* tokens resolve to deeper shades on light surfaces and lighter
+// shades in dark mode (see index.css), so charts stay legible in both themes.
 const ENGINE_COLORS: Record<string, string> = {
-  openai: "#10b981",
-  gemini: "#3b82f6",
-  claude: "#f59e0b",
-  perplexity: "#8b5cf6",
+  openai: "var(--series-openai)",
+  gemini: "var(--series-gemini)",
+  claude: "var(--series-claude)",
+  perplexity: "var(--series-perplexity)",
 };
-const colorFor = (provider: string) => ENGINE_COLORS[provider] || "#6b7280";
+const colorFor = (provider: string) => ENGINE_COLORS[provider] || "var(--muted-foreground)";
 
-// Colors per content type for the content-views chart.
+// Colors per content type for the content-views chart (share the engine hues).
 const TYPE_COLORS: Record<string, string> = {
-  blog: "#10b981",
-  newsletter: "#3b82f6",
-  social: "#f59e0b",
-  landing: "#8b5cf6",
-  email: "#ec4899",
+  blog: "var(--series-openai)",
+  newsletter: "var(--series-gemini)",
+  social: "var(--series-claude)",
+  landing: "var(--series-perplexity)",
+  email: "var(--series-email)",
 };
-const typeColor = (t: string) => TYPE_COLORS[t] || "#6b7280";
+const typeColor = (t: string) => TYPE_COLORS[t] || "var(--muted-foreground)";
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 export default function PortalPerformance() {
@@ -204,12 +215,12 @@ export default function PortalPerformance() {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={perf.rankProgression as any[]}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="label" fontSize={12} />
-                    <YAxis reversed domain={[1, "dataMax"]} allowDecimals={false} fontSize={12} tickFormatter={(v) => `#${v}`} />
-                    <Tooltip formatter={(v: any) => (v == null ? "—" : `#${v}`)} />
-                    <Legend />
+                  <LineChart data={perf.rankProgression as any[]} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+                    <CartesianGrid {...CHART_GRID} />
+                    <XAxis dataKey="label" {...CHART_AXIS} />
+                    <YAxis reversed domain={[1, "dataMax"]} allowDecimals={false} width={40} {...CHART_AXIS} tickFormatter={(v) => `#${v}`} />
+                    <Tooltip cursor={LINE_CURSOR} content={<ChartTooltip valueFormatter={(v) => (v == null ? "—" : `#${v}`)} />} />
+                    <Legend content={<ChartLegend />} />
                     {engines.map((e) => (
                       <Line
                         key={e.provider}
@@ -219,7 +230,8 @@ export default function PortalPerformance() {
                         stroke={colorFor(e.provider)}
                         strokeWidth={2}
                         connectNulls
-                        dot={{ r: 3 }}
+                        dot={{ r: 3, strokeWidth: 2, stroke: "var(--card)" }}
+                        activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--card)" }}
                       />
                     ))}
                   </LineChart>
@@ -234,14 +246,17 @@ export default function PortalPerformance() {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={perf.startVsCurrent as any[]}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="label" fontSize={12} />
-                    <YAxis reversed domain={[1, "dataMax"]} allowDecimals={false} fontSize={12} tickFormatter={(v) => `#${v}`} />
-                    <Tooltip formatter={(v: any) => (v == null ? "—" : `#${v}`)} />
-                    <Legend />
-                    <Bar dataKey="start" name="Start" fill="#9ca3af" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="current" name="Current" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <BarChart data={perf.startVsCurrent as any[]} margin={{ top: 8, right: 12, left: 4, bottom: 0 }} barGap={6}>
+                    <defs>
+                      <AreaGradient id="grad-current" color="var(--series-gemini)" from={1} to={0.72} />
+                    </defs>
+                    <CartesianGrid {...CHART_GRID} />
+                    <XAxis dataKey="label" {...CHART_AXIS} />
+                    <YAxis reversed domain={[1, "dataMax"]} allowDecimals={false} width={40} {...CHART_AXIS} tickFormatter={(v) => `#${v}`} />
+                    <Tooltip cursor={BAR_CURSOR} content={<ChartTooltip valueFormatter={(v) => (v == null ? "—" : `#${v}`)} />} />
+                    <Legend content={<ChartLegend />} />
+                    <Bar dataKey="start" name="Start" fill="var(--muted-foreground)" fillOpacity={0.35} radius={[4, 4, 0, 0]} maxBarSize={44} />
+                    <Bar dataKey="current" name="Current" fill="url(#grad-current)" radius={[4, 4, 0, 0]} maxBarSize={44} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -310,12 +325,20 @@ export default function PortalPerformance() {
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={280}>
-                    <RadarChart data={perf.radar as any[]}>
-                      <PolarGrid />
-                      <PolarAngleAxis dataKey="dimension" fontSize={12} />
+                    <RadarChart data={perf.radar as any[]} outerRadius="72%">
+                      <PolarGrid stroke="var(--border)" />
+                      <PolarAngleAxis dataKey="dimension" tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
                       <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                      <Radar name="Visibility" dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.35} />
-                      <Tooltip />
+                      <Radar
+                        name="Visibility"
+                        dataKey="value"
+                        stroke="var(--series-gemini)"
+                        strokeWidth={2}
+                        fill="var(--series-gemini)"
+                        fillOpacity={0.2}
+                        dot={{ r: 3, fill: "var(--series-gemini)", strokeWidth: 0 }}
+                      />
+                      <Tooltip cursor={false} content={<ChartTooltip />} />
                     </RadarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -327,24 +350,38 @@ export default function PortalPerformance() {
                   <p className="text-xs text-muted-foreground">Visibility split across AI engines</p>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie
-                        data={perf.shareOfVoice as any[]}
-                        dataKey="pct"
-                        nameKey="label"
-                        innerRadius={70}
-                        outerRadius={110}
-                        paddingAngle={2}
-                      >
-                        {perf.shareOfVoice.map((s) => (
-                          <Cell key={s.provider} fill={colorFor(s.provider)} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v: any, n: any) => [`${v}%`, n]} />
-                      <Legend formatter={(_v, entry: any) => `${entry?.payload?.label} ${entry?.payload?.pct}%`} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <div className="relative">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie
+                          data={perf.shareOfVoice as any[]}
+                          dataKey="pct"
+                          nameKey="label"
+                          innerRadius={72}
+                          outerRadius={108}
+                          paddingAngle={2}
+                          stroke="var(--card)"
+                          strokeWidth={2}
+                        >
+                          {perf.shareOfVoice.map((s) => (
+                            <Cell key={s.provider} fill={colorFor(s.provider)} />
+                          ))}
+                        </Pie>
+                        <Tooltip cursor={false} content={<ChartTooltip valueFormatter={(v) => `${v}%`} />} />
+                        <Legend content={<ChartLegend formatter={(e: any) => `${e.payload?.label ?? e.value} · ${e.payload?.pct}%`} />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    {(() => {
+                      const top = [...(perf.shareOfVoice as any[])].sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))[0];
+                      if (!top) return null;
+                      return (
+                        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-8">
+                          <span className="text-2xl font-bold text-foreground">{top.pct}%</span>
+                          <span className="text-xs text-muted-foreground">{top.label}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -364,12 +401,17 @@ export default function PortalPerformance() {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={280}>
-                  <AreaChart data={perf.referralTraffic as any[]}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="label" fontSize={12} />
-                    <YAxis fontSize={12} />
-                    <Tooltip />
-                    <Legend />
+                  <AreaChart data={perf.referralTraffic as any[]} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+                    <defs>
+                      {engines.map((e) => (
+                        <AreaGradient key={e.provider} id={`grad-area-${e.provider}`} color={colorFor(e.provider)} from={0.5} to={0.05} />
+                      ))}
+                    </defs>
+                    <CartesianGrid {...CHART_GRID} />
+                    <XAxis dataKey="label" {...CHART_AXIS} />
+                    <YAxis width={44} {...CHART_AXIS} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `${v}`)} />
+                    <Tooltip cursor={LINE_CURSOR} content={<ChartTooltip />} />
+                    <Legend content={<ChartLegend />} />
                     {engines.map((e) => (
                       <Area
                         key={e.provider}
@@ -378,8 +420,9 @@ export default function PortalPerformance() {
                         name={e.label}
                         stackId="1"
                         stroke={colorFor(e.provider)}
-                        fill={colorFor(e.provider)}
-                        fillOpacity={0.25}
+                        strokeWidth={2}
+                        fill={`url(#grad-area-${e.provider})`}
+                        fillOpacity={1}
                       />
                     ))}
                   </AreaChart>
@@ -532,12 +575,12 @@ export default function PortalPerformance() {
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={contentPerf.viewsOverTime as any[]}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="label" fontSize={12} />
-                        <YAxis fontSize={12} />
-                        <Tooltip />
-                        <Legend />
+                      <LineChart data={contentPerf.viewsOverTime as any[]} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+                        <CartesianGrid {...CHART_GRID} />
+                        <XAxis dataKey="label" {...CHART_AXIS} />
+                        <YAxis width={44} {...CHART_AXIS} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `${v}`)} />
+                        <Tooltip cursor={LINE_CURSOR} content={<ChartTooltip />} />
+                        <Legend content={<ChartLegend />} />
                         {(contentPerf.types || []).map((t) => (
                           <Line
                             key={t}
@@ -546,7 +589,8 @@ export default function PortalPerformance() {
                             name={cap(t)}
                             stroke={typeColor(t)}
                             strokeWidth={2}
-                            dot={{ r: 2 }}
+                            dot={{ r: 3, strokeWidth: 2, stroke: "var(--card)" }}
+                            activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--card)" }}
                           />
                         ))}
                       </LineChart>
@@ -562,12 +606,16 @@ export default function PortalPerformance() {
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={260}>
-                      <BarChart data={contentPerf.byType as any[]}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                        <XAxis dataKey="type" fontSize={12} tickFormatter={(t) => String(t).charAt(0).toUpperCase() + String(t).slice(1)} />
-                        <YAxis fontSize={12} />
-                        <Tooltip />
-                        <Bar dataKey="views" name="Views" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <BarChart data={contentPerf.byType as any[]} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+                        <CartesianGrid {...CHART_GRID} />
+                        <XAxis dataKey="type" {...CHART_AXIS} tickFormatter={(t) => cap(String(t))} />
+                        <YAxis width={44} {...CHART_AXIS} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `${v}`)} />
+                        <Tooltip cursor={BAR_CURSOR} content={<ChartTooltip labelFormatter={(t) => cap(String(t))} />} />
+                        <Bar dataKey="views" name="Views" radius={[4, 4, 0, 0]} maxBarSize={56}>
+                          {(contentPerf.byType as any[]).map((row) => (
+                            <Cell key={row.type} fill={typeColor(row.type)} />
+                          ))}
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   </CardContent>
