@@ -14,8 +14,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
 import {
-  Settings as SettingsIcon, Palette, FileText, Save, Loader2, Plus, Trash2, Building2, ShieldAlert, LogOut
+  Settings as SettingsIcon, Palette, FileText, Save, Loader2, Plus, Trash2, Building2, ShieldAlert, LogOut, Users
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Select,
@@ -34,7 +36,23 @@ export default function Settings() {
   const saveTemplateMutation = trpc.agencySettings.savePromptTemplate.useMutation();
   const deleteTemplateMutation = trpc.agencySettings.deletePromptTemplate.useMutation();
 
-  const { logoutAllDevices, logoutAllPending } = useAuth();
+  const { user, logoutAllDevices, logoutAllPending } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  // Team management (admins only). `enabled` keeps non-admins from calling the admin-only endpoint.
+  const { data: team, refetch: refetchTeam, isLoading: teamLoading } =
+    trpc.team.list.useQuery(undefined, { enabled: isAdmin });
+  const setRoleMutation = trpc.team.setRole.useMutation();
+
+  const handleSetRole = async (userId: number, role: "admin" | "user") => {
+    try {
+      await setRoleMutation.mutateAsync({ userId, role });
+      toast.success(role === "admin" ? "Promoted to admin" : "Changed to member");
+      refetchTeam();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update role");
+    }
+  };
 
   const handleLogoutAllDevices = async () => {
     try {
@@ -163,6 +181,12 @@ export default function Settings() {
             <ShieldAlert className="h-4 w-4" />
             Security
           </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="team" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Team
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Branding Tab */}
@@ -473,6 +497,74 @@ export default function Settings() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Team Tab (admins only) */}
+        {isAdmin && (
+          <TabsContent value="team">
+            <Card>
+              <CardHeader>
+                <CardTitle>Team</CardTitle>
+                <CardDescription>
+                  Owners and staff who can sign in. Admins see and manage every client and all
+                  content; members only see what they create. New sign-ups start as members.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {teamLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : !team || team.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">No accounts yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {team.map((member) => {
+                      const isSelf = member.id === user?.id;
+                      const admin = member.role === "admin";
+                      return (
+                        <div
+                          key={member.id}
+                          className="flex items-center justify-between gap-4 p-4 rounded-lg border border-border/50 bg-card/50"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium truncate">
+                                {member.name || member.email || `User #${member.id}`}
+                              </p>
+                              {isSelf && <Badge variant="outline" className="text-xs">You</Badge>}
+                              <Badge variant={admin ? "default" : "secondary"} className="text-xs">
+                                {admin ? "Admin" : "Member"}
+                              </Badge>
+                            </div>
+                            {member.email && (
+                              <p className="text-sm text-muted-foreground truncate">{member.email}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Label htmlFor={`admin-${member.id}`} className="text-sm text-muted-foreground">
+                              Admin
+                            </Label>
+                            <Switch
+                              id={`admin-${member.id}`}
+                              checked={admin}
+                              disabled={isSelf || setRoleMutation.isPending}
+                              onCheckedChange={(checked) =>
+                                handleSetRole(member.id, checked ? "admin" : "user")
+                              }
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground mt-4">
+                  You can't change your own role, so there's always at least one admin.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
