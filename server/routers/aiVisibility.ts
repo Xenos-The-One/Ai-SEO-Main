@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { eq, and, desc, asc } from "drizzle-orm";
+import { ownScope } from "../access";
 import { getDb } from "../db";
 import { assertBrand, assertAiPrompt } from "../authz";
 import { limitLlmBatch } from "../_core/rateLimiters";
@@ -41,7 +42,7 @@ export const aiVisibilityRouter = router({
 
   listBrands: protectedProcedure.query(async ({ ctx }) => {
     const d = await db();
-    return d.select().from(aiBrands).where(eq(aiBrands.createdBy, ctx.user.id)).orderBy(desc(aiBrands.createdAt));
+    return d.select().from(aiBrands).where(ownScope(ctx.user, aiBrands.createdBy)).orderBy(desc(aiBrands.createdAt));
   }),
 
   deleteBrand: protectedProcedure

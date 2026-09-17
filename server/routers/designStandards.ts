@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { designStandards } from "../../drizzle/schema";
 import { and, eq, desc } from "drizzle-orm";
+import { ownScope } from "../access";
 import { assertDesignStandard } from "../authz";
 
 /**
@@ -16,7 +17,7 @@ export const designStandardsRouter = router({
     return db
       .select()
       .from(designStandards)
-      .where(and(eq(designStandards.createdBy, ctx.user.id), eq(designStandards.isActive, 1)))
+      .where(and(ownScope(ctx.user, designStandards.createdBy), eq(designStandards.isActive, 1)))
       .orderBy(desc(designStandards.isDefault), desc(designStandards.createdAt));
   }),
 
@@ -27,7 +28,7 @@ export const designStandardsRouter = router({
     const [standard] = await db
       .select()
       .from(designStandards)
-      .where(and(eq(designStandards.createdBy, ctx.user.id), eq(designStandards.isDefault, 1)))
+      .where(and(ownScope(ctx.user, designStandards.createdBy), eq(designStandards.isDefault, 1)))
       .limit(1);
     return standard || null;
   }),
@@ -66,7 +67,7 @@ export const designStandardsRouter = router({
         await db
           .update(designStandards)
           .set({ isDefault: 0 })
-          .where(and(eq(designStandards.createdBy, ctx.user.id), eq(designStandards.isDefault, 1)));
+          .where(and(ownScope(ctx.user, designStandards.createdBy), eq(designStandards.isDefault, 1)));
       }
 
       const [result] = await db.insert(designStandards).values({
@@ -107,7 +108,7 @@ export const designStandardsRouter = router({
         await db
           .update(designStandards)
           .set({ isDefault: 0 })
-          .where(and(eq(designStandards.createdBy, ctx.user.id), eq(designStandards.isDefault, 1)));
+          .where(and(ownScope(ctx.user, designStandards.createdBy), eq(designStandards.isDefault, 1)));
       }
 
       const updateData: any = {};
@@ -153,7 +154,7 @@ export const designStandardsRouter = router({
     const [existing] = await db
       .select()
       .from(designStandards)
-      .where(and(eq(designStandards.createdBy, ctx.user.id), eq(designStandards.isDefault, 1)))
+      .where(and(ownScope(ctx.user, designStandards.createdBy), eq(designStandards.isDefault, 1)))
       .limit(1);
 
     if (existing) {

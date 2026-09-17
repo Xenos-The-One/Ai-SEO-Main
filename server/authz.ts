@@ -22,12 +22,15 @@ import {
   webhookConfigs,
   wordpressConnections,
 } from "../drizzle/schema";
+import { isAgencyAdmin } from "./db";
 
 /**
- * Object-level authorization guards. Every resource is owned by the agency user who
- * created it (directly via `createdBy`, or transitively through its parent client /
- * content / brand). Each guard throws FORBIDDEN unless the row exists AND belongs to
- * `userId`, closing the IDOR where any logged-in user could act on any row by id.
+ * Object-level authorization guards. Every resource records the agency user who created
+ * it (directly via `createdBy`, or transitively through its parent client / content /
+ * brand). Agency admins (owners/staff) may act on any row that exists — it's one shared
+ * book of business — while a non-admin is limited to rows it created. Each guard throws
+ * FORBIDDEN when no matching row is found, closing the IDOR where a non-admin could act
+ * on someone else's row by id.
  *
  * Call these in tRPC resolvers before reading, mutating, or deleting a resource that
  * is addressed by a client-supplied id.
@@ -71,10 +74,12 @@ type OwnedKind = keyof typeof OWNED_TABLES;
 async function assertOwned(kind: OwnedKind, id: number, userId: number): Promise<void> {
   const table = OWNED_TABLES[kind] as any;
   const db = await requireDb();
+  // Admins may act on any existing row; non-admins only their own.
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({ id: table.id })
     .from(table)
-    .where(and(eq(table.id, id), eq(table.createdBy, userId)))
+    .where(admin ? eq(table.id, id) : and(eq(table.id, id), eq(table.createdBy, userId)))
     .limit(1);
   if (rows.length === 0) deny();
 }
@@ -106,11 +111,12 @@ export const assertBacklinkSnapshot = (userId: number, id: number) =>
 /** A content comment is owned by whoever owns its parent content. */
 export async function assertContentComment(userId: number, commentId: number): Promise<void> {
   const db = await requireDb();
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({ id: contentComments.id })
     .from(contentComments)
     .innerJoin(content, eq(contentComments.contentId, content.id))
-    .where(and(eq(contentComments.id, commentId), eq(content.createdBy, userId)))
+    .where(admin ? eq(contentComments.id, commentId) : and(eq(contentComments.id, commentId), eq(content.createdBy, userId)))
     .limit(1);
   if (rows.length === 0) deny();
 }
@@ -118,11 +124,12 @@ export async function assertContentComment(userId: number, commentId: number): P
 /** A repurposed item is owned by whoever owns its parent content. */
 export async function assertRepurposed(userId: number, repurposedId: number): Promise<void> {
   const db = await requireDb();
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({ id: contentRepurposed.id })
     .from(contentRepurposed)
     .innerJoin(content, eq(contentRepurposed.contentId, content.id))
-    .where(and(eq(contentRepurposed.id, repurposedId), eq(content.createdBy, userId)))
+    .where(admin ? eq(contentRepurposed.id, repurposedId) : and(eq(contentRepurposed.id, repurposedId), eq(content.createdBy, userId)))
     .limit(1);
   if (rows.length === 0) deny();
 }
@@ -130,11 +137,12 @@ export async function assertRepurposed(userId: number, repurposedId: number): Pr
 /** A content revision is owned by whoever owns its parent content. */
 export async function assertRevision(userId: number, revisionId: number): Promise<void> {
   const db = await requireDb();
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({ id: contentRevisions.id })
     .from(contentRevisions)
     .innerJoin(content, eq(contentRevisions.contentId, content.id))
-    .where(and(eq(contentRevisions.id, revisionId), eq(content.createdBy, userId)))
+    .where(admin ? eq(contentRevisions.id, revisionId) : and(eq(contentRevisions.id, revisionId), eq(content.createdBy, userId)))
     .limit(1);
   if (rows.length === 0) deny();
 }
@@ -142,11 +150,12 @@ export async function assertRevision(userId: number, revisionId: number): Promis
 /** A content brief is owned by whoever owns its client. */
 export async function assertBrief(userId: number, briefId: number): Promise<void> {
   const db = await requireDb();
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({ id: contentBriefs.id })
     .from(contentBriefs)
     .innerJoin(clients, eq(contentBriefs.clientId, clients.id))
-    .where(and(eq(contentBriefs.id, briefId), eq(clients.createdBy, userId)))
+    .where(admin ? eq(contentBriefs.id, briefId) : and(eq(contentBriefs.id, briefId), eq(clients.createdBy, userId)))
     .limit(1);
   if (rows.length === 0) deny();
 }
@@ -154,11 +163,12 @@ export async function assertBrief(userId: number, briefId: number): Promise<void
 /** A client-portal user is owned by whoever owns its client. */
 export async function assertPortalUser(userId: number, portalUserId: number): Promise<void> {
   const db = await requireDb();
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({ id: clientPortalUsers.id })
     .from(clientPortalUsers)
     .innerJoin(clients, eq(clientPortalUsers.clientId, clients.id))
-    .where(and(eq(clientPortalUsers.id, portalUserId), eq(clients.createdBy, userId)))
+    .where(admin ? eq(clientPortalUsers.id, portalUserId) : and(eq(clientPortalUsers.id, portalUserId), eq(clients.createdBy, userId)))
     .limit(1);
   if (rows.length === 0) deny();
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { content, wordpressConnections, wordpressPublishHistory } from "../../drizzle/schema";
 import { and, eq, inArray } from "drizzle-orm";
+import { ownScope } from "../access";
 import { assertContent } from "../authz";
 
 /**
@@ -42,7 +43,7 @@ export const bulkPublishingRouter = router({
           .from(wordpressConnections)
           .where(and(
             inArray(wordpressConnections.id, input.wordpressConnectionIds),
-            eq(wordpressConnections.createdBy, ctx.user.id),
+            ownScope(ctx.user, wordpressConnections.createdBy),
           ));
 
         for (const connection of connections) {

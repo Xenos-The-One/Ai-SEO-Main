@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, desc } from "drizzle-orm";
+import { ownScope } from "../access";
 import { getDb } from "../db";
 import { assertClient, assertSiteAudit } from "../authz";
 import { limitData } from "../_core/rateLimiters";
@@ -116,7 +117,7 @@ export const siteAuditRouter = router({
       return d
         .select()
         .from(siteAudits)
-        .where(and(eq(siteAudits.clientId, input.clientId), eq(siteAudits.createdBy, ctx.user.id)))
+        .where(and(eq(siteAudits.clientId, input.clientId), ownScope(ctx.user, siteAudits.createdBy)))
         .orderBy(desc(siteAudits.createdAt))
         .limit(20);
     }),

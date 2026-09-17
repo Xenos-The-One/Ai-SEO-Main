@@ -67,11 +67,12 @@ export const analyticsRouter = router({
     if (!db) return [];
     const { contentAnalytics, content } = await import("../../drizzle/schema");
     const { eq } = await import("drizzle-orm");
+    const { ownScope } = await import("../access");
     const rows = await db
       .select({ analytics: contentAnalytics })
       .from(contentAnalytics)
       .innerJoin(content, eq(contentAnalytics.contentId, content.id))
-      .where(eq(content.createdBy, ctx.user.id))
+      .where(ownScope(ctx.user, content.createdBy))
       .orderBy(contentAnalytics.recordedAt);
     return rows.map((r) => r.analytics);
   }),

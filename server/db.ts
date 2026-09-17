@@ -117,6 +117,18 @@ export async function createUser(data: InsertUser) {
   return result[0];
 }
 
+/**
+ * Whether `userId` is an agency admin. Admins may read and manage the whole agency's
+ * data; non-admins are limited to rows they created. Used by the read helpers below and
+ * by the authorization guards in ./authz. One indexed lookup by primary key.
+ */
+export async function isAgencyAdmin(userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  return rows[0]?.role === "admin";
+}
+
 /** Revoke every outstanding session for a user by bumping their token version. */
 export async function incrementUserTokenVersion(userId: number): Promise<number> {
   const db = await getDb();
@@ -219,7 +231,9 @@ export async function createClient(client: InsertClient) {
 export async function getClientsByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(clients).where(eq(clients.createdBy, userId));
+  // Admins see every client; non-admins only their own.
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db.select().from(clients).where(admin ? undefined : eq(clients.createdBy, userId));
   return rows.map((row) => decryptClient(row)!);
 }
 
@@ -257,7 +271,8 @@ export async function createContent(contentData: InsertContent) {
 export async function getContentByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(content).where(eq(content.createdBy, userId)).orderBy(content.createdAt);
+  const admin = await isAgencyAdmin(userId);
+  return db.select().from(content).where(admin ? undefined : eq(content.createdBy, userId)).orderBy(content.createdAt);
 }
 
 export async function getContentById(id: number) {
@@ -288,6 +303,7 @@ export async function getContentByClient(clientId: number) {
 export async function getContentWithClient(userId: number) {
   const db = await getDb();
   if (!db) return [];
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({
       content: content,
@@ -295,7 +311,7 @@ export async function getContentWithClient(userId: number) {
     })
     .from(content)
     .leftJoin(clients, eq(content.clientId, clients.id))
-    .where(eq(content.createdBy, userId))
+    .where(admin ? undefined : eq(content.createdBy, userId))
     .orderBy(content.createdAt);
   // Never surface stored client credentials through the content list.
   return rows.map((row) => ({
@@ -316,10 +332,11 @@ export async function createTemplate(data: any) {
 export async function getTemplatesByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
+  const admin = await isAgencyAdmin(userId);
   return db
     .select()
     .from(contentTemplates)
-    .where(eq(contentTemplates.createdBy, userId))
+    .where(admin ? undefined : eq(contentTemplates.createdBy, userId))
     .orderBy(contentTemplates.createdAt);
 }
 
@@ -486,7 +503,8 @@ export async function getWebhooksByClient(clientId: number) {
 export async function getAllWebhooks(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(webhookConfigs).where(eq(webhookConfigs.createdBy, userId));
+  const admin = await isAgencyAdmin(userId);
+  return db.select().from(webhookConfigs).where(admin ? undefined : eq(webhookConfigs.createdBy, userId));
 }
 
 export async function getWebhookById(id: number) {
@@ -549,11 +567,12 @@ export async function getContentBriefs(clientId?: number) {
 export async function getContentBriefsForUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
+  const admin = await isAgencyAdmin(userId);
   const rows = await db
     .select({ brief: contentBriefs })
     .from(contentBriefs)
     .innerJoin(clients, eq(contentBriefs.clientId, clients.id))
-    .where(eq(clients.createdBy, userId))
+    .where(admin ? undefined : eq(clients.createdBy, userId))
     .orderBy(contentBriefs.createdAt);
   return rows.map((r) => r.brief);
 }

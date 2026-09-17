@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, isAgencyAdmin } from "./db";
 import { content, contentComments, contentRevisions, users } from "../drizzle/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { notifyOwner } from "./_core/notification";
@@ -119,10 +119,11 @@ export async function requestRevision(
 export async function getPendingApprovals(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
 
   const pendingContent = await db.select()
     .from(content)
-    .where(and(eq(content.status, "in_progress"), eq(content.createdBy, userId)))
+    .where(and(eq(content.status, "in_progress"), admin ? undefined : eq(content.createdBy, userId)))
     .orderBy(desc(content.updatedAt));
 
   return pendingContent;
@@ -227,22 +228,23 @@ export async function addComment(
 export async function getApprovalStats(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
 
-  // Count pending approvals (in_progress status) — this owner only
+  // Count pending approvals (in_progress status) — whole agency for admins, else own
   const pending = await db.select({ id: content.id })
     .from(content)
-    .where(and(eq(content.status, "in_progress"), eq(content.createdBy, userId)));
+    .where(and(eq(content.status, "in_progress"), admin ? undefined : eq(content.createdBy, userId)));
 
-  // Count approved — this owner only
+  // Count approved — whole agency for admins, else own
   const approved = await db.select({ id: content.id })
     .from(content)
-    .where(and(eq(content.wasApproved, 1), eq(content.createdBy, userId)));
+    .where(and(eq(content.wasApproved, 1), admin ? undefined : eq(content.createdBy, userId)));
 
-  // Count revision requests on this owner's content
+  // Count revision requests — whole agency for admins, else on own content
   const revisionRequested = await db.select({ id: contentRevisions.id })
     .from(contentRevisions)
     .innerJoin(content, eq(contentRevisions.contentId, content.id))
-    .where(and(eq(contentRevisions.status, "pending"), eq(content.createdBy, userId)));
+    .where(and(eq(contentRevisions.status, "pending"), admin ? undefined : eq(content.createdBy, userId)));
 
   return {
     pending: pending.length,

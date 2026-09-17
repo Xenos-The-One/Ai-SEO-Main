@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, inArray, desc, asc } from "drizzle-orm";
+import { ownScope } from "../access";
 import { getDb } from "../db";
 import { assertClient, assertTrackedKeyword } from "../authz";
 import { limitData } from "../_core/rateLimiters";
@@ -59,7 +60,7 @@ export const rankTrackingRouter = router({
       const keywords = await d
         .select()
         .from(trackedKeywords)
-        .where(and(eq(trackedKeywords.clientId, input.clientId), eq(trackedKeywords.createdBy, ctx.user.id)))
+        .where(and(eq(trackedKeywords.clientId, input.clientId), ownScope(ctx.user, trackedKeywords.createdBy)))
         .orderBy(asc(trackedKeywords.createdAt));
 
       if (keywords.length === 0) return [];

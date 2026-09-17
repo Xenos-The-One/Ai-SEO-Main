@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, isAgencyAdmin } from "./db";
 import { content } from "../drizzle/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { MODEL_COSTS } from "./budgetTracking";
@@ -29,8 +29,9 @@ export function calculateWordCount(text: string): number {
 export async function getModelPerformanceMetrics(userId: number): Promise<ModelPerformanceMetrics[]> {
   const db = await getDb();
   if (!db) return [];
+  const admin = await isAgencyAdmin(userId);
 
-  const allContent = await db.select().from(content).where(eq(content.createdBy, userId));
+  const allContent = await db.select().from(content).where(admin ? undefined : eq(content.createdBy, userId));
 
   // Group by model
   const modelGroups = new Map<string, typeof allContent>();

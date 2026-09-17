@@ -3,6 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { createTemplate, getTemplatesByUser, deleteTemplate } from "../db";
 import { assertTemplate } from "../authz";
 import { eq } from "drizzle-orm";
+import { ownScope } from "../access";
 
 export const templatesRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -41,7 +42,7 @@ export const templatesRouter = router({
       if (!db) throw new Error("Database not available");
 
       // Check if templates already exist
-      const existing = await db.select().from(contentTemplates).where(eq(contentTemplates.createdBy, ctx.user.id));
+      const existing = await db.select().from(contentTemplates).where(ownScope(ctx.user, contentTemplates.createdBy));
       if (existing.length > 0) {
         return { message: "Templates already seeded", count: 0 };
       }

@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, isAgencyAdmin } from "./db";
 import { content, contentAnalytics } from "../drizzle/schema";
 import { eq, desc, and, gte } from "drizzle-orm";
 
@@ -90,6 +90,7 @@ export async function getContentPerformance(contentId: number) {
 export async function getTopPerformingContent(limit: number = 10, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
 
   const topContent = await db.select({
     id: content.id,
@@ -104,7 +105,7 @@ export async function getTopPerformingContent(limit: number = 10, userId: number
   })
     .from(content)
     .leftJoin(contentAnalytics, eq(content.id, contentAnalytics.contentId))
-    .where(and(eq(content.status, "approved"), eq(content.createdBy, userId)))
+    .where(and(eq(content.status, "approved"), admin ? undefined : eq(content.createdBy, userId)))
     .orderBy(desc(contentAnalytics.views))
     .limit(limit);
 
@@ -117,6 +118,7 @@ export async function getTopPerformingContent(limit: number = 10, userId: number
 export async function getPerformanceSummary(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
 
   const allAnalytics = await db.select({
     views: contentAnalytics.views,
@@ -127,7 +129,7 @@ export async function getPerformanceSummary(userId: number) {
   })
     .from(contentAnalytics)
     .innerJoin(content, eq(contentAnalytics.contentId, content.id))
-    .where(eq(content.createdBy, userId));
+    .where(admin ? undefined : eq(content.createdBy, userId));
 
   const totalViews = allAnalytics.reduce((sum, a) => sum + (a.views || 0), 0);
   const totalClicks = allAnalytics.reduce((sum, a) => sum + (a.clicks || 0), 0);
@@ -213,6 +215,7 @@ export async function trackContentClick(contentId: number) {
 export async function getPerformanceTrends(days: number = 30, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
 
   const since = new Date();
   since.setDate(since.getDate() - days);
@@ -226,7 +229,7 @@ export async function getPerformanceTrends(days: number = 30, userId: number) {
   })
     .from(contentAnalytics)
     .innerJoin(content, eq(contentAnalytics.contentId, content.id))
-    .where(and(gte(contentAnalytics.recordedAt, since), eq(content.createdBy, userId)))
+    .where(and(gte(contentAnalytics.recordedAt, since), admin ? undefined : eq(content.createdBy, userId)))
     .orderBy(desc(contentAnalytics.recordedAt));
 
   return recentAnalytics;

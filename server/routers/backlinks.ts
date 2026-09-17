@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, desc } from "drizzle-orm";
+import { ownScope } from "../access";
 import { getDb } from "../db";
 import { assertClient } from "../authz";
 import { limitData } from "../_core/rateLimiters";
@@ -73,7 +74,7 @@ export const backlinksRouter = router({
       const [snap] = await d
         .select()
         .from(backlinkSnapshots)
-        .where(and(eq(backlinkSnapshots.clientId, input.clientId), eq(backlinkSnapshots.createdBy, ctx.user.id)))
+        .where(and(eq(backlinkSnapshots.clientId, input.clientId), ownScope(ctx.user, backlinkSnapshots.createdBy)))
         .orderBy(desc(backlinkSnapshots.createdAt))
         .limit(1);
       if (!snap) return null;
@@ -123,7 +124,7 @@ export const backlinksRouter = router({
           createdAt: backlinkSnapshots.createdAt,
         })
         .from(backlinkSnapshots)
-        .where(and(eq(backlinkSnapshots.clientId, input.clientId), eq(backlinkSnapshots.createdBy, ctx.user.id)))
+        .where(and(eq(backlinkSnapshots.clientId, input.clientId), ownScope(ctx.user, backlinkSnapshots.createdBy)))
         .orderBy(backlinkSnapshots.createdAt)
         .limit(60);
       return rows;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { wordpressPublishHistory, content, wordpressConnections } from "../../drizzle/schema";
 import { and, eq, desc, gte, sql } from "drizzle-orm";
+import { ownScope } from "../access";
 import { assertContent } from "../authz";
 
 /**
@@ -23,7 +24,7 @@ export const publishingAnalyticsRouter = router({
       })
       .from(wordpressPublishHistory)
       .innerJoin(content, eq(wordpressPublishHistory.contentId, content.id))
-      .where(eq(content.createdBy, ctx.user.id));
+      .where(ownScope(ctx.user, content.createdBy));
 
     return {
       wordpress: {
@@ -87,7 +88,7 @@ export const publishingAnalyticsRouter = router({
           )`,
         })
         .from(content)
-        .where(eq(content.createdBy, ctx.user.id))
+        .where(ownScope(ctx.user, content.createdBy))
         .orderBy(sql`(
           SELECT COUNT(*) FROM ${wordpressPublishHistory} WHERE ${wordpressPublishHistory.contentId} = ${content.id} AND ${wordpressPublishHistory.success} = 1
         ) DESC`)
@@ -120,7 +121,7 @@ export const publishingAnalyticsRouter = router({
         .from(wordpressPublishHistory)
         .innerJoin(content, eq(wordpressPublishHistory.contentId, content.id))
         .leftJoin(wordpressConnections, eq(wordpressPublishHistory.connectionId, wordpressConnections.id))
-        .where(eq(content.createdBy, ctx.user.id))
+        .where(ownScope(ctx.user, content.createdBy))
         .orderBy(desc(wordpressPublishHistory.publishedAt))
         .limit(input.limit);
 
@@ -144,7 +145,7 @@ export const publishingAnalyticsRouter = router({
       })
       .from(wordpressPublishHistory)
       .innerJoin(content, eq(wordpressPublishHistory.contentId, content.id))
-      .where(and(gte(wordpressPublishHistory.publishedAt, thirtyDaysAgo), eq(content.createdBy, ctx.user.id)))
+      .where(and(gte(wordpressPublishHistory.publishedAt, thirtyDaysAgo), ownScope(ctx.user, content.createdBy)))
       .groupBy(sql`date`)
       .orderBy(sql`date`);
 

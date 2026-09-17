@@ -3,6 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { recurringPlans } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { eq } from "drizzle-orm";
+import { ownScope } from "../access";
 import { invokeLLM, DEFAULT_TEXT_MODEL } from "../_core/llm";
 import { generateImage } from "../_core/imageGeneration";
 import { content } from "../../drizzle/schema";
@@ -13,7 +14,7 @@ export const recurringPlansRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) return [];
-    return db.select().from(recurringPlans).where(eq(recurringPlans.createdBy, ctx.user.id));
+    return db.select().from(recurringPlans).where(ownScope(ctx.user, recurringPlans.createdBy));
   }),
 
   create: protectedProcedure
