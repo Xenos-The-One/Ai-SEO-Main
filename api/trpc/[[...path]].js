@@ -770,6 +770,7 @@ __export(db_exports, {
   getWebhookById: () => getWebhookById,
   getWebhooksByClient: () => getWebhooksByClient,
   incrementUserTokenVersion: () => incrementUserTokenVersion,
+  isAgencyAdmin: () => isAgencyAdmin,
   recordAnalytics: () => recordAnalytics,
   saveQualityScore: () => saveQualityScore,
   slugify: () => slugify,
@@ -876,6 +877,12 @@ async function createUser(data) {
   const result = await db6.insert(users).values(data).returning();
   return result[0];
 }
+async function isAgencyAdmin(userId) {
+  const db6 = await getDb();
+  if (!db6) return false;
+  const rows = await db6.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  return rows[0]?.role === "admin";
+}
 async function incrementUserTokenVersion(userId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
@@ -938,7 +945,8 @@ async function createClient(client) {
 async function getClientsByUser(userId) {
   const db6 = await getDb();
   if (!db6) return [];
-  const rows = await db6.select().from(clients).where(eq(clients.createdBy, userId));
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select().from(clients).where(admin ? void 0 : eq(clients.createdBy, userId));
   return rows.map((row) => decryptClient(row));
 }
 async function getClientById(id) {
@@ -970,7 +978,8 @@ async function createContent(contentData) {
 async function getContentByUser(userId) {
   const db6 = await getDb();
   if (!db6) return [];
-  return db6.select().from(content).where(eq(content.createdBy, userId)).orderBy(content.createdAt);
+  const admin = await isAgencyAdmin(userId);
+  return db6.select().from(content).where(admin ? void 0 : eq(content.createdBy, userId)).orderBy(content.createdAt);
 }
 async function getContentById(id) {
   const db6 = await getDb();
@@ -996,10 +1005,11 @@ async function getContentByClient(clientId) {
 async function getContentWithClient(userId) {
   const db6 = await getDb();
   if (!db6) return [];
+  const admin = await isAgencyAdmin(userId);
   const rows = await db6.select({
     content,
     client: clients
-  }).from(content).leftJoin(clients, eq(content.clientId, clients.id)).where(eq(content.createdBy, userId)).orderBy(content.createdAt);
+  }).from(content).leftJoin(clients, eq(content.clientId, clients.id)).where(admin ? void 0 : eq(content.createdBy, userId)).orderBy(content.createdAt);
   return rows.map((row) => ({
     ...row,
     client: row.client ? { ...row.client, websitePassword: null } : row.client
@@ -1014,7 +1024,8 @@ async function createTemplate(data) {
 async function getTemplatesByUser(userId) {
   const db6 = await getDb();
   if (!db6) return [];
-  return db6.select().from(contentTemplates).where(eq(contentTemplates.createdBy, userId)).orderBy(contentTemplates.createdAt);
+  const admin = await isAgencyAdmin(userId);
+  return db6.select().from(contentTemplates).where(admin ? void 0 : eq(contentTemplates.createdBy, userId)).orderBy(contentTemplates.createdAt);
 }
 async function getPublicTemplates() {
   const db6 = await getDb();
@@ -1123,7 +1134,8 @@ async function getWebhooksByClient(clientId) {
 async function getAllWebhooks(userId) {
   const db6 = await getDb();
   if (!db6) return [];
-  return db6.select().from(webhookConfigs).where(eq(webhookConfigs.createdBy, userId));
+  const admin = await isAgencyAdmin(userId);
+  return db6.select().from(webhookConfigs).where(admin ? void 0 : eq(webhookConfigs.createdBy, userId));
 }
 async function getWebhookById(id) {
   const db6 = await getDb();
@@ -1174,7 +1186,8 @@ async function getContentBriefs(clientId) {
 async function getContentBriefsForUser(userId) {
   const db6 = await getDb();
   if (!db6) return [];
-  const rows = await db6.select({ brief: contentBriefs }).from(contentBriefs).innerJoin(clients, eq(contentBriefs.clientId, clients.id)).where(eq(clients.createdBy, userId)).orderBy(contentBriefs.createdAt);
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select({ brief: contentBriefs }).from(contentBriefs).innerJoin(clients, eq(contentBriefs.clientId, clients.id)).where(admin ? void 0 : eq(clients.createdBy, userId)).orderBy(contentBriefs.createdAt);
   return rows.map((r) => r.brief);
 }
 async function getContentBriefByToken(token) {
@@ -1674,6 +1687,25 @@ var init_budgetTracking = __esm({
       "gemini-2.5-flash": { input: 0.075, output: 0.3, name: "Gemini 2.5 Flash" },
       "gemini-2.5-pro": { input: 1.25, output: 5, name: "Gemini 2.5 Pro" }
     };
+  }
+});
+
+// server/access.ts
+var access_exports = {};
+__export(access_exports, {
+  canAccessAllData: () => canAccessAllData,
+  ownScope: () => ownScope
+});
+import { eq as eq4 } from "drizzle-orm";
+function canAccessAllData(user) {
+  return user.role === "admin";
+}
+function ownScope(user, createdBy) {
+  return canAccessAllData(user) ? void 0 : eq4(createdBy, user.id);
+}
+var init_access = __esm({
+  "server/access.ts"() {
+    "use strict";
   }
 });
 
@@ -2760,14 +2792,15 @@ __export(modelPerformance_exports, {
   compareModels: () => compareModels,
   getModelPerformanceMetrics: () => getModelPerformanceMetrics
 });
-import { eq as eq17 } from "drizzle-orm";
+import { eq as eq18 } from "drizzle-orm";
 function calculateWordCount(text2) {
   return text2.trim().split(/\s+/).filter((word) => word.length > 0).length;
 }
 async function getModelPerformanceMetrics(userId) {
   const db6 = await getDb();
   if (!db6) return [];
-  const allContent = await db6.select().from(content).where(eq17(content.createdBy, userId));
+  const admin = await isAgencyAdmin(userId);
+  const allContent = await db6.select().from(content).where(admin ? void 0 : eq18(content.createdBy, userId));
   const modelGroups = /* @__PURE__ */ new Map();
   for (const item of allContent) {
     const model = item.aiModel;
@@ -2936,11 +2969,11 @@ __export(performanceTracking_exports, {
   trackContentView: () => trackContentView,
   updatePerformanceMetrics: () => updatePerformanceMetrics
 });
-import { eq as eq18, desc as desc8, and as and14, gte as gte4 } from "drizzle-orm";
+import { eq as eq19, desc as desc9, and as and14, gte as gte4 } from "drizzle-orm";
 async function updatePerformanceMetrics(metrics) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const existing = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, metrics.contentId)).limit(1);
+  const existing = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, metrics.contentId)).limit(1);
   if (existing.length > 0) {
     await db6.update(contentAnalytics).set({
       views: metrics.views,
@@ -2948,7 +2981,7 @@ async function updatePerformanceMetrics(metrics) {
       shares: existing[0].shares,
       // Preserve existing shares
       recordedAt: /* @__PURE__ */ new Date()
-    }).where(eq18(contentAnalytics.contentId, metrics.contentId));
+    }).where(eq19(contentAnalytics.contentId, metrics.contentId));
   } else {
     await db6.insert(contentAnalytics).values({
       contentId: metrics.contentId,
@@ -2966,7 +2999,7 @@ async function updatePerformanceMetrics(metrics) {
 async function getContentPerformance(contentId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [analytics] = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
+  const [analytics] = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, contentId)).limit(1);
   if (!analytics) {
     return {
       views: 0,
@@ -2982,6 +3015,7 @@ async function getContentPerformance(contentId) {
 async function getTopPerformingContent(limit = 10, userId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
   const topContent = await db6.select({
     id: content.id,
     title: content.title,
@@ -2992,19 +3026,20 @@ async function getTopPerformingContent(limit = 10, userId) {
     shares: contentAnalytics.shares,
     engagementRate: contentAnalytics.engagementRate,
     conversions: contentAnalytics.conversions
-  }).from(content).leftJoin(contentAnalytics, eq18(content.id, contentAnalytics.contentId)).where(and14(eq18(content.status, "approved"), eq18(content.createdBy, userId))).orderBy(desc8(contentAnalytics.views)).limit(limit);
+  }).from(content).leftJoin(contentAnalytics, eq19(content.id, contentAnalytics.contentId)).where(and14(eq19(content.status, "approved"), admin ? void 0 : eq19(content.createdBy, userId))).orderBy(desc9(contentAnalytics.views)).limit(limit);
   return topContent;
 }
 async function getPerformanceSummary(userId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
   const allAnalytics = await db6.select({
     views: contentAnalytics.views,
     clicks: contentAnalytics.clicks,
     shares: contentAnalytics.shares,
     conversions: contentAnalytics.conversions,
     engagementRate: contentAnalytics.engagementRate
-  }).from(contentAnalytics).innerJoin(content, eq18(contentAnalytics.contentId, content.id)).where(eq18(content.createdBy, userId));
+  }).from(contentAnalytics).innerJoin(content, eq19(contentAnalytics.contentId, content.id)).where(admin ? void 0 : eq19(content.createdBy, userId));
   const totalViews = allAnalytics.reduce((sum, a) => sum + (a.views || 0), 0);
   const totalClicks = allAnalytics.reduce((sum, a) => sum + (a.clicks || 0), 0);
   const totalShares = allAnalytics.reduce((sum, a) => sum + (a.shares || 0), 0);
@@ -3022,12 +3057,12 @@ async function getPerformanceSummary(userId) {
 async function trackContentView(contentId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [existing] = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
+  const [existing] = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, contentId)).limit(1);
   if (existing) {
     await db6.update(contentAnalytics).set({
       views: (existing.views || 0) + 1,
       recordedAt: /* @__PURE__ */ new Date()
-    }).where(eq18(contentAnalytics.contentId, contentId));
+    }).where(eq19(contentAnalytics.contentId, contentId));
   } else {
     await db6.insert(contentAnalytics).values({
       contentId,
@@ -3045,18 +3080,19 @@ async function trackContentView(contentId) {
 async function trackContentClick(contentId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [existing] = await db6.select().from(contentAnalytics).where(eq18(contentAnalytics.contentId, contentId)).limit(1);
+  const [existing] = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, contentId)).limit(1);
   if (existing) {
     await db6.update(contentAnalytics).set({
       clicks: (existing.clicks || 0) + 1,
       recordedAt: /* @__PURE__ */ new Date()
-    }).where(eq18(contentAnalytics.contentId, contentId));
+    }).where(eq19(contentAnalytics.contentId, contentId));
   }
   return { success: true };
 }
 async function getPerformanceTrends(days = 30, userId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
+  const admin = await isAgencyAdmin(userId);
   const since = /* @__PURE__ */ new Date();
   since.setDate(since.getDate() - days);
   const recentAnalytics = await db6.select({
@@ -3065,7 +3101,7 @@ async function getPerformanceTrends(days = 30, userId) {
     views: contentAnalytics.views,
     clicks: contentAnalytics.clicks,
     recordedAt: contentAnalytics.recordedAt
-  }).from(contentAnalytics).innerJoin(content, eq18(contentAnalytics.contentId, content.id)).where(and14(gte4(contentAnalytics.recordedAt, since), eq18(content.createdBy, userId))).orderBy(desc8(contentAnalytics.recordedAt));
+  }).from(contentAnalytics).innerJoin(content, eq19(contentAnalytics.contentId, content.id)).where(and14(gte4(contentAnalytics.recordedAt, since), admin ? void 0 : eq19(content.createdBy, userId))).orderBy(desc9(contentAnalytics.recordedAt));
   return recentAnalytics;
 }
 var init_performanceTracking = __esm({
@@ -3093,7 +3129,7 @@ __export(clientPortalAuth_exports, {
   verifyClientPortalToken: () => verifyClientPortalToken,
   verifyPassword: () => verifyPassword
 });
-import { eq as eq19 } from "drizzle-orm";
+import { eq as eq20 } from "drizzle-orm";
 import * as crypto2 from "crypto";
 import bcrypt from "bcryptjs";
 import jwt2 from "jsonwebtoken";
@@ -3125,7 +3161,7 @@ function generateInvitationToken() {
 async function createClientPortalInvitation(clientId, email, name, role = "client_viewer") {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const existing = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
+  const existing = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.email, email)).limit(1);
   if (existing.length > 0) {
     throw new Error("User with this email already exists");
   }
@@ -3157,7 +3193,7 @@ async function createClientPortalInvitation(clientId, email, name, role = "clien
 async function acceptInvitation(token, newPassword) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [user] = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.invitationToken, token)).limit(1);
+  const [user] = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.invitationToken, token)).limit(1);
   if (!user) {
     throw new Error("Invalid invitation token");
   }
@@ -3171,13 +3207,13 @@ async function acceptInvitation(token, newPassword) {
     invitationToken: null,
     invitationExpiry: null,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq19(clientPortalUsers.id, user.id));
+  }).where(eq20(clientPortalUsers.id, user.id));
   return { success: true, userId: user.id };
 }
 async function createDirectPortalUser(clientId, email, name, password, role = "client_admin") {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const existing = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
+  const existing = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.email, email)).limit(1);
   if (existing.length > 0) {
     throw new Error("A portal user with this email already exists");
   }
@@ -3220,7 +3256,7 @@ function createPortalImpersonationToken(clientId, clientName) {
 async function loginClientPortalUser(email, password) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [user] = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.email, email)).limit(1);
+  const [user] = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.email, email)).limit(1);
   if (!user) {
     throw new Error("Invalid email or password");
   }
@@ -3232,9 +3268,9 @@ async function loginClientPortalUser(email, password) {
   }
   if (!isBcryptHash(user.passwordHash)) {
     const upgraded = await hashPassword(password);
-    await db6.update(clientPortalUsers).set({ passwordHash: upgraded }).where(eq19(clientPortalUsers.id, user.id));
+    await db6.update(clientPortalUsers).set({ passwordHash: upgraded }).where(eq20(clientPortalUsers.id, user.id));
   }
-  await db6.update(clientPortalUsers).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where(eq19(clientPortalUsers.id, user.id));
+  await db6.update(clientPortalUsers).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where(eq20(clientPortalUsers.id, user.id));
   const token = jwt2.sign(
     {
       userId: user.id,
@@ -3281,7 +3317,7 @@ async function getClientPortalUser(userId) {
     lastLoginAt: clientPortalUsers.lastLoginAt,
     clientName: clients.name,
     clientCompany: clients.company
-  }).from(clientPortalUsers).leftJoin(clients, eq19(clientPortalUsers.clientId, clients.id)).where(eq19(clientPortalUsers.id, userId)).limit(1);
+  }).from(clientPortalUsers).leftJoin(clients, eq20(clientPortalUsers.clientId, clients.id)).where(eq20(clientPortalUsers.id, userId)).limit(1);
   return user;
 }
 async function listClientPortalUsers(clientId) {
@@ -3295,13 +3331,13 @@ async function listClientPortalUsers(clientId) {
     isActive: clientPortalUsers.isActive,
     lastLoginAt: clientPortalUsers.lastLoginAt,
     createdAt: clientPortalUsers.createdAt
-  }).from(clientPortalUsers).where(eq19(clientPortalUsers.clientId, clientId));
+  }).from(clientPortalUsers).where(eq20(clientPortalUsers.clientId, clientId));
   return users2;
 }
 async function changeClientPortalPassword(userId, oldPassword, newPassword) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [user] = await db6.select().from(clientPortalUsers).where(eq19(clientPortalUsers.id, userId)).limit(1);
+  const [user] = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.id, userId)).limit(1);
   if (!user) {
     throw new Error("User not found");
   }
@@ -3312,7 +3348,7 @@ async function changeClientPortalPassword(userId, oldPassword, newPassword) {
   await db6.update(clientPortalUsers).set({
     passwordHash: newPasswordHash,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq19(clientPortalUsers.id, userId));
+  }).where(eq20(clientPortalUsers.id, userId));
   return { success: true };
 }
 async function deactivateClientPortalUser(userId) {
@@ -3321,7 +3357,7 @@ async function deactivateClientPortalUser(userId) {
   await db6.update(clientPortalUsers).set({
     isActive: 0,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq19(clientPortalUsers.id, userId));
+  }).where(eq20(clientPortalUsers.id, userId));
   return { success: true };
 }
 var INVITATION_EXPIRY_HOURS, BCRYPT_ROUNDS;
@@ -3354,7 +3390,7 @@ __export(clientPortalData_exports, {
   portalRequestRevision: () => portalRequestRevision,
   providerLabel: () => providerLabel
 });
-import { and as and16, asc as asc3, desc as desc9, eq as eq20, gte as gte5, inArray as inArray3, sql as sql5 } from "drizzle-orm";
+import { and as and16, asc as asc3, desc as desc10, eq as eq21, gte as gte5, inArray as inArray3, sql as sql5 } from "drizzle-orm";
 async function db5() {
   const d = await getDb();
   if (!d) throw new Error("Database not available");
@@ -3372,7 +3408,7 @@ function intentLabel(intent) {
 }
 async function getPortalMe(clientId, role, email) {
   const d = await db5();
-  const [client] = await d.select({ id: clients.id, name: clients.name, company: clients.company }).from(clients).where(eq20(clients.id, clientId)).limit(1);
+  const [client] = await d.select({ id: clients.id, name: clients.name, company: clients.company }).from(clients).where(eq21(clients.id, clientId)).limit(1);
   return {
     clientId,
     role,
@@ -3383,16 +3419,16 @@ async function getPortalMe(clientId, role, email) {
 }
 async function getPortalBranding2(clientId) {
   const d = await db5();
-  const [row] = await d.select().from(portalBranding).where(eq20(portalBranding.clientId, clientId)).limit(1);
+  const [row] = await d.select().from(portalBranding).where(eq21(portalBranding.clientId, clientId)).limit(1);
   return row ?? null;
 }
 async function getPortalContentList(clientId) {
   const d = await db5();
-  return d.select().from(content).where(eq20(content.clientId, clientId)).orderBy(desc9(content.createdAt));
+  return d.select().from(content).where(eq21(content.clientId, clientId)).orderBy(desc10(content.createdAt));
 }
 async function getPortalContentById(clientId, id) {
   const d = await db5();
-  const [row] = await d.select().from(content).where(and16(eq20(content.id, id), eq20(content.clientId, clientId))).limit(1);
+  const [row] = await d.select().from(content).where(and16(eq21(content.id, id), eq21(content.clientId, clientId))).limit(1);
   return row ?? null;
 }
 async function getPortalStats(clientId) {
@@ -3413,25 +3449,25 @@ async function portalApproveContent(clientId, contentId) {
   const d = await db5();
   const existing = await getPortalContentById(clientId, contentId);
   if (!existing) return false;
-  await d.update(content).set({ status: "approved", wasApproved: 1, approvedAt: /* @__PURE__ */ new Date(), progress: 100 }).where(and16(eq20(content.id, contentId), eq20(content.clientId, clientId)));
+  await d.update(content).set({ status: "approved", wasApproved: 1, approvedAt: /* @__PURE__ */ new Date(), progress: 100 }).where(and16(eq21(content.id, contentId), eq21(content.clientId, clientId)));
   return true;
 }
 async function portalRequestRevision(clientId, contentId) {
   const d = await db5();
   const existing = await getPortalContentById(clientId, contentId);
   if (!existing) return false;
-  await d.update(content).set({ status: "in_progress", wasApproved: 0, approvedAt: null }).where(and16(eq20(content.id, contentId), eq20(content.clientId, clientId)));
+  await d.update(content).set({ status: "in_progress", wasApproved: 0, approvedAt: null }).where(and16(eq21(content.id, contentId), eq21(content.clientId, clientId)));
   return true;
 }
 async function getPortalFeedback(clientId, contentId) {
   const d = await db5();
   const owned = await getPortalContentById(clientId, contentId);
   if (!owned) return [];
-  return d.select().from(portalFeedback).where(and16(eq20(portalFeedback.contentId, contentId), eq20(portalFeedback.clientId, clientId))).orderBy(desc9(portalFeedback.createdAt));
+  return d.select().from(portalFeedback).where(and16(eq21(portalFeedback.contentId, contentId), eq21(portalFeedback.clientId, clientId))).orderBy(desc10(portalFeedback.createdAt));
 }
 async function getFeedbackForContent(contentId) {
   const d = await db5();
-  return d.select().from(portalFeedback).where(eq20(portalFeedback.contentId, contentId)).orderBy(desc9(portalFeedback.createdAt));
+  return d.select().from(portalFeedback).where(eq21(portalFeedback.contentId, contentId)).orderBy(desc10(portalFeedback.createdAt));
 }
 async function addPortalFeedback(clientId, userId, email, contentId, note) {
   const d = await db5();
@@ -3439,7 +3475,7 @@ async function addPortalFeedback(clientId, userId, email, contentId, note) {
   if (!owned) return null;
   let authorName = "Client";
   if (userId > 0) {
-    const [u] = await d.select({ name: clientPortalUsers.name }).from(clientPortalUsers).where(eq20(clientPortalUsers.id, userId)).limit(1);
+    const [u] = await d.select({ name: clientPortalUsers.name }).from(clientPortalUsers).where(eq21(clientPortalUsers.id, userId)).limit(1);
     if (u?.name) authorName = u.name;
   } else {
     authorName = "Agency (preview)";
@@ -3449,12 +3485,12 @@ async function addPortalFeedback(clientId, userId, email, contentId, note) {
 }
 async function findClientBrandId(clientId) {
   const d = await db5();
-  const [client] = await d.select({ createdBy: clients.createdBy, websiteUrl: clients.websiteUrl, businessWebsite: clients.businessWebsite }).from(clients).where(eq20(clients.id, clientId)).limit(1);
+  const [client] = await d.select({ createdBy: clients.createdBy, websiteUrl: clients.websiteUrl, businessWebsite: clients.businessWebsite }).from(clients).where(eq21(clients.id, clientId)).limit(1);
   if (!client) return null;
   const domainSource = client.websiteUrl || client.businessWebsite || "";
   if (!domainSource) return null;
   const clientDomain2 = normalizeDomain(domainSource);
-  const brands = await d.select({ id: aiBrands.id, domain: aiBrands.domain }).from(aiBrands).where(eq20(aiBrands.createdBy, client.createdBy));
+  const brands = await d.select({ id: aiBrands.id, domain: aiBrands.domain }).from(aiBrands).where(eq21(aiBrands.createdBy, client.createdBy));
   const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain2);
   return match?.id ?? null;
 }
@@ -3466,7 +3502,7 @@ async function getPortalContentAnalytics(clientId) {
     contentType: content.contentType,
     status: content.status,
     createdAt: content.createdAt
-  }).from(content).where(eq20(content.clientId, clientId));
+  }).from(content).where(eq21(content.clientId, clientId));
   const empty = {
     hasData: false,
     totalPieces: rows.length,
@@ -3481,13 +3517,13 @@ async function getPortalContentAnalytics(clientId) {
   let aiCitationsEarned = 0;
   const brandId = await findClientBrandId(clientId);
   if (brandId != null) {
-    const [m] = await d.select({ n: sql5`count(*)` }).from(aiVisibilityResults).where(and16(eq20(aiVisibilityResults.brandId, brandId), eq20(aiVisibilityResults.mentioned, 1)));
+    const [m] = await d.select({ n: sql5`count(*)` }).from(aiVisibilityResults).where(and16(eq21(aiVisibilityResults.brandId, brandId), eq21(aiVisibilityResults.mentioned, 1)));
     aiCitationsEarned = Number(m?.n ?? 0);
   }
   empty.aiCitationsEarned = aiCitationsEarned;
   if (rows.length === 0) return empty;
   const ids = rows.map((r) => r.id);
-  const analytics = await d.select().from(contentAnalytics).where(inArray3(contentAnalytics.contentId, ids)).orderBy(desc9(contentAnalytics.recordedAt));
+  const analytics = await d.select().from(contentAnalytics).where(inArray3(contentAnalytics.contentId, ids)).orderBy(desc10(contentAnalytics.recordedAt));
   if (analytics.length === 0) return empty;
   const latest = /* @__PURE__ */ new Map();
   for (const a of analytics) if (!latest.has(a.contentId)) latest.set(a.contentId, a);
@@ -3560,7 +3596,7 @@ function currentMonthLabel() {
 }
 async function getPortalServicePlan(clientId) {
   const d = await db5();
-  const [client] = await d.select({ servicePlan: clients.servicePlan }).from(clients).where(eq20(clients.id, clientId)).limit(1);
+  const [client] = await d.select({ servicePlan: clients.servicePlan }).from(clients).where(eq21(clients.id, clientId)).limit(1);
   let items = [];
   try {
     items = client?.servicePlan ? JSON.parse(client.servicePlan) : [];
@@ -3573,7 +3609,7 @@ async function getPortalServicePlan(clientId) {
     (i) => i.type === "quota" && typeof i.source === "string" && i.source.startsWith("content:")
   );
   if (needsContentCounts) {
-    const rows = await d.select({ type: content.contentType, n: sql5`count(*)` }).from(content).where(and16(eq20(content.clientId, clientId), gte5(content.createdAt, startOfCurrentMonth()))).groupBy(content.contentType);
+    const rows = await d.select({ type: content.contentType, n: sql5`count(*)` }).from(content).where(and16(eq21(content.clientId, clientId), gte5(content.createdAt, startOfCurrentMonth()))).groupBy(content.contentType);
     for (const r of rows) counts.set(r.type, Number(r.n));
   }
   const enriched = items.map((i) => {
@@ -3603,7 +3639,7 @@ function parseSeoOverview(raw) {
 }
 async function getPortalPerformance(clientId) {
   const d = await db5();
-  const [client] = await d.select().from(clients).where(eq20(clients.id, clientId)).limit(1);
+  const [client] = await d.select().from(clients).where(eq21(clients.id, clientId)).limit(1);
   if (!client) throw new Error("Client not found");
   const onboardedAt = client.createdAt;
   const monthsActive = Math.max(
@@ -3679,7 +3715,7 @@ function emptyAiVisibility() {
 }
 async function buildAiVisibility(brandId, clientName) {
   const d = await db5();
-  const [brand] = await d.select({ competitors: aiBrands.competitors }).from(aiBrands).where(eq20(aiBrands.id, brandId)).limit(1);
+  const [brand] = await d.select({ competitors: aiBrands.competitors }).from(aiBrands).where(eq21(aiBrands.id, brandId)).limit(1);
   const rows = await d.select({
     scanId: aiVisibilityResults.scanId,
     provider: aiVisibilityResults.provider,
@@ -3691,7 +3727,7 @@ async function buildAiVisibility(brandId, clientName) {
     answerExcerpt: aiVisibilityResults.answerExcerpt,
     prompt: aiPrompts.prompt,
     createdAt: aiVisibilityResults.createdAt
-  }).from(aiVisibilityResults).leftJoin(aiPrompts, eq20(aiVisibilityResults.promptId, aiPrompts.id)).where(eq20(aiVisibilityResults.brandId, brandId)).orderBy(asc3(aiVisibilityResults.createdAt));
+  }).from(aiVisibilityResults).leftJoin(aiPrompts, eq21(aiVisibilityResults.promptId, aiPrompts.id)).where(eq21(aiVisibilityResults.brandId, brandId)).orderBy(asc3(aiVisibilityResults.createdAt));
   if (rows.length === 0) return emptyAiVisibility();
   const scanOrder = [];
   for (const r of rows) if (!scanOrder.includes(r.scanId)) scanOrder.push(r.scanId);
@@ -3839,10 +3875,10 @@ async function buildAiVisibility(brandId, clientName) {
 }
 async function buildKeywordRankings(clientId) {
   const d = await db5();
-  const keywords = await d.select().from(trackedKeywords).where(and16(eq20(trackedKeywords.clientId, clientId), eq20(trackedKeywords.isActive, 1)));
+  const keywords = await d.select().from(trackedKeywords).where(and16(eq21(trackedKeywords.clientId, clientId), eq21(trackedKeywords.isActive, 1)));
   if (keywords.length === 0) return [];
   const ids = keywords.map((k) => k.id);
-  const snaps = await d.select().from(rankSnapshots).where(inArray3(rankSnapshots.keywordId, ids)).orderBy(desc9(rankSnapshots.checkedAt));
+  const snaps = await d.select().from(rankSnapshots).where(inArray3(rankSnapshots.keywordId, ids)).orderBy(desc10(rankSnapshots.checkedAt));
   return keywords.map((k) => {
     const history = snaps.filter((s) => s.keywordId === k.id);
     const current = history[0]?.position ?? null;
@@ -3901,12 +3937,12 @@ __export(approvalWorkflow_exports, {
   requestApproval: () => requestApproval,
   requestRevision: () => requestRevision
 });
-import { eq as eq21, and as and17, desc as desc10 } from "drizzle-orm";
+import { eq as eq22, and as and17, desc as desc11 } from "drizzle-orm";
 async function requestApproval(contentId, requestedBy) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  await db6.update(content).set({ status: "in_progress", updatedAt: /* @__PURE__ */ new Date() }).where(eq21(content.id, contentId));
-  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
+  await db6.update(content).set({ status: "in_progress", updatedAt: /* @__PURE__ */ new Date() }).where(eq22(content.id, contentId));
+  const [contentData] = await db6.select().from(content).where(eq22(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "Content Approval Requested",
@@ -3923,8 +3959,8 @@ async function approveContent(contentId, approvedBy) {
     updatedAt: /* @__PURE__ */ new Date(),
     wasApproved: 1,
     approvedAt: /* @__PURE__ */ new Date()
-  }).where(eq21(content.id, contentId));
-  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
+  }).where(eq22(content.id, contentId));
+  const [contentData] = await db6.select().from(content).where(eq22(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "Content Approved",
@@ -3951,8 +3987,8 @@ async function requestRevision(contentId, requestedBy, reason) {
   await db6.update(content).set({
     status: "draft",
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq21(content.id, contentId));
-  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
+  }).where(eq22(content.id, contentId));
+  const [contentData] = await db6.select().from(content).where(eq22(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "Revision Requested",
@@ -3964,7 +4000,8 @@ async function requestRevision(contentId, requestedBy, reason) {
 async function getPendingApprovals(userId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const pendingContent = await db6.select().from(content).where(and17(eq21(content.status, "in_progress"), eq21(content.createdBy, userId))).orderBy(desc10(content.updatedAt));
+  const admin = await isAgencyAdmin(userId);
+  const pendingContent = await db6.select().from(content).where(and17(eq22(content.status, "in_progress"), admin ? void 0 : eq22(content.createdBy, userId))).orderBy(desc11(content.updatedAt));
   return pendingContent;
 }
 async function getRevisionRequests(contentId) {
@@ -3978,7 +4015,7 @@ async function getRevisionRequests(contentId) {
     completedAt: contentRevisions.completedAt,
     requestedBy: contentRevisions.requestedBy,
     userName: users.name
-  }).from(contentRevisions).leftJoin(users, eq21(contentRevisions.requestedBy, users.id)).where(eq21(contentRevisions.contentId, contentId)).orderBy(desc10(contentRevisions.createdAt));
+  }).from(contentRevisions).leftJoin(users, eq22(contentRevisions.requestedBy, users.id)).where(eq22(contentRevisions.contentId, contentId)).orderBy(desc11(contentRevisions.createdAt));
   return revisions;
 }
 async function completeRevision(revisionId) {
@@ -3987,13 +4024,13 @@ async function completeRevision(revisionId) {
   await db6.update(contentRevisions).set({
     status: "completed",
     completedAt: /* @__PURE__ */ new Date()
-  }).where(eq21(contentRevisions.id, revisionId));
-  const [revision] = await db6.select().from(contentRevisions).where(eq21(contentRevisions.id, revisionId)).limit(1);
+  }).where(eq22(contentRevisions.id, revisionId));
+  const [revision] = await db6.select().from(contentRevisions).where(eq22(contentRevisions.id, revisionId)).limit(1);
   if (revision) {
     await db6.update(content).set({
       status: "draft",
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq21(content.id, revision.contentId));
+    }).where(eq22(content.id, revision.contentId));
   }
   return { success: true };
 }
@@ -4008,7 +4045,7 @@ async function addComment2(contentId, userId, comment) {
     createdAt: /* @__PURE__ */ new Date(),
     updatedAt: /* @__PURE__ */ new Date()
   }).returning({ id: contentComments.id });
-  const [contentData] = await db6.select().from(content).where(eq21(content.id, contentId)).limit(1);
+  const [contentData] = await db6.select().from(content).where(eq22(content.id, contentId)).limit(1);
   if (contentData) {
     await notifyOwner({
       title: "New Comment on Content",
@@ -4020,9 +4057,10 @@ async function addComment2(contentId, userId, comment) {
 async function getApprovalStats(userId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const pending = await db6.select({ id: content.id }).from(content).where(and17(eq21(content.status, "in_progress"), eq21(content.createdBy, userId)));
-  const approved = await db6.select({ id: content.id }).from(content).where(and17(eq21(content.wasApproved, 1), eq21(content.createdBy, userId)));
-  const revisionRequested = await db6.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq21(contentRevisions.contentId, content.id)).where(and17(eq21(contentRevisions.status, "pending"), eq21(content.createdBy, userId)));
+  const admin = await isAgencyAdmin(userId);
+  const pending = await db6.select({ id: content.id }).from(content).where(and17(eq22(content.status, "in_progress"), admin ? void 0 : eq22(content.createdBy, userId)));
+  const approved = await db6.select({ id: content.id }).from(content).where(and17(eq22(content.wasApproved, 1), admin ? void 0 : eq22(content.createdBy, userId)));
+  const revisionRequested = await db6.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq22(contentRevisions.contentId, content.id)).where(and17(eq22(contentRevisions.status, "pending"), admin ? void 0 : eq22(content.createdBy, userId)));
   return {
     pending: pending.length,
     approved: approved.length,
@@ -4048,7 +4086,7 @@ __export(abTesting_exports, {
   setABTestWinner: () => setABTestWinner,
   updateABTestResults: () => updateABTestResults
 });
-import { eq as eq22, desc as desc11 } from "drizzle-orm";
+import { eq as eq23, desc as desc12 } from "drizzle-orm";
 async function createABTest(data) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
@@ -4084,7 +4122,7 @@ async function updateABTestResults(id, versionData) {
     updates.inputTokensB = versionData.inputTokens;
     updates.outputTokensB = versionData.outputTokens;
   }
-  await db6.update(abTests).set(updates).where(eq22(abTests.id, id));
+  await db6.update(abTests).set(updates).where(eq23(abTests.id, id));
 }
 async function setABTestWinner(id, winner, notes) {
   const db6 = await getDb();
@@ -4092,12 +4130,12 @@ async function setABTestWinner(id, winner, notes) {
   await db6.update(abTests).set({
     winner,
     notes: notes || null
-  }).where(eq22(abTests.id, id));
+  }).where(eq23(abTests.id, id));
 }
 async function getABTestById(id) {
   const db6 = await getDb();
   if (!db6) return null;
-  const [test] = await db6.select().from(abTests).where(eq22(abTests.id, id));
+  const [test] = await db6.select().from(abTests).where(eq23(abTests.id, id));
   return test || null;
 }
 async function listABTests() {
@@ -4106,13 +4144,13 @@ async function listABTests() {
   const tests = await db6.select({
     test: abTests,
     client: clients
-  }).from(abTests).leftJoin(clients, eq22(abTests.clientId, clients.id)).orderBy(desc11(abTests.createdAt));
+  }).from(abTests).leftJoin(clients, eq23(abTests.clientId, clients.id)).orderBy(desc12(abTests.createdAt));
   return tests;
 }
 async function deleteABTest(id) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  await db6.delete(abTests).where(eq22(abTests.id, id));
+  await db6.delete(abTests).where(eq23(abTests.id, id));
 }
 var init_abTesting = __esm({
   "server/abTesting.ts"() {
@@ -4272,8 +4310,8 @@ var systemRouter = router({
 });
 
 // server/routers.ts
-import { TRPCError as TRPCError9 } from "@trpc/server";
-import { z as z24 } from "zod";
+import { TRPCError as TRPCError10 } from "@trpc/server";
+import { z as z25 } from "zod";
 import bcrypt2 from "bcryptjs";
 import { nanoid as nanoid4 } from "nanoid";
 
@@ -4478,6 +4516,7 @@ async function generateImage(options) {
 // server/authz.ts
 init_db();
 init_schema();
+init_db();
 import { TRPCError as TRPCError3 } from "@trpc/server";
 import { and, eq as eq2 } from "drizzle-orm";
 function deny() {
@@ -4512,7 +4551,8 @@ var OWNED_TABLES = {
 async function assertOwned(kind, id, userId) {
   const table = OWNED_TABLES[kind];
   const db6 = await requireDb();
-  const rows = await db6.select({ id: table.id }).from(table).where(and(eq2(table.id, id), eq2(table.createdBy, userId))).limit(1);
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select({ id: table.id }).from(table).where(admin ? eq2(table.id, id) : and(eq2(table.id, id), eq2(table.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 var assertClient = (userId, id) => assertOwned("client", id, userId);
@@ -4529,27 +4569,32 @@ var assertSiteAudit = (userId, id) => assertOwned("siteAudit", id, userId);
 var assertTrackedKeyword = (userId, id) => assertOwned("trackedKeyword", id, userId);
 async function assertContentComment(userId, commentId) {
   const db6 = await requireDb();
-  const rows = await db6.select({ id: contentComments.id }).from(contentComments).innerJoin(content, eq2(contentComments.contentId, content.id)).where(and(eq2(contentComments.id, commentId), eq2(content.createdBy, userId))).limit(1);
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select({ id: contentComments.id }).from(contentComments).innerJoin(content, eq2(contentComments.contentId, content.id)).where(admin ? eq2(contentComments.id, commentId) : and(eq2(contentComments.id, commentId), eq2(content.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertRepurposed(userId, repurposedId) {
   const db6 = await requireDb();
-  const rows = await db6.select({ id: contentRepurposed.id }).from(contentRepurposed).innerJoin(content, eq2(contentRepurposed.contentId, content.id)).where(and(eq2(contentRepurposed.id, repurposedId), eq2(content.createdBy, userId))).limit(1);
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select({ id: contentRepurposed.id }).from(contentRepurposed).innerJoin(content, eq2(contentRepurposed.contentId, content.id)).where(admin ? eq2(contentRepurposed.id, repurposedId) : and(eq2(contentRepurposed.id, repurposedId), eq2(content.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertRevision(userId, revisionId) {
   const db6 = await requireDb();
-  const rows = await db6.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq2(contentRevisions.contentId, content.id)).where(and(eq2(contentRevisions.id, revisionId), eq2(content.createdBy, userId))).limit(1);
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select({ id: contentRevisions.id }).from(contentRevisions).innerJoin(content, eq2(contentRevisions.contentId, content.id)).where(admin ? eq2(contentRevisions.id, revisionId) : and(eq2(contentRevisions.id, revisionId), eq2(content.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertBrief(userId, briefId) {
   const db6 = await requireDb();
-  const rows = await db6.select({ id: contentBriefs.id }).from(contentBriefs).innerJoin(clients, eq2(contentBriefs.clientId, clients.id)).where(and(eq2(contentBriefs.id, briefId), eq2(clients.createdBy, userId))).limit(1);
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select({ id: contentBriefs.id }).from(contentBriefs).innerJoin(clients, eq2(contentBriefs.clientId, clients.id)).where(admin ? eq2(contentBriefs.id, briefId) : and(eq2(contentBriefs.id, briefId), eq2(clients.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 async function assertPortalUser(userId, portalUserId) {
   const db6 = await requireDb();
-  const rows = await db6.select({ id: clientPortalUsers.id }).from(clientPortalUsers).innerJoin(clients, eq2(clientPortalUsers.clientId, clients.id)).where(and(eq2(clientPortalUsers.id, portalUserId), eq2(clients.createdBy, userId))).limit(1);
+  const admin = await isAgencyAdmin(userId);
+  const rows = await db6.select({ id: clientPortalUsers.id }).from(clientPortalUsers).innerJoin(clients, eq2(clientPortalUsers.clientId, clients.id)).where(admin ? eq2(clientPortalUsers.id, portalUserId) : and(eq2(clientPortalUsers.id, portalUserId), eq2(clients.createdBy, userId))).limit(1);
   if (rows.length === 0) deny();
 }
 
@@ -4634,7 +4679,7 @@ var bulkRouter = router({
 // server/routers/templates.ts
 import { z as z3 } from "zod";
 init_db();
-import { eq as eq4 } from "drizzle-orm";
+init_access();
 var templatesRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return await getTemplatesByUser(ctx.user.id);
@@ -4664,7 +4709,7 @@ var templatesRouter = router({
     const { contentTemplates: contentTemplates2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
     const db6 = await getDb2();
     if (!db6) throw new Error("Database not available");
-    const existing = await db6.select().from(contentTemplates2).where(eq4(contentTemplates2.createdBy, ctx.user.id));
+    const existing = await db6.select().from(contentTemplates2).where(ownScope(ctx.user, contentTemplates2.createdBy));
     if (existing.length > 0) {
       return { message: "Templates already seeded", count: 0 };
     }
@@ -4792,8 +4837,9 @@ var analyticsRouter = router({
     const db6 = await getDb2();
     if (!db6) return [];
     const { contentAnalytics: contentAnalytics2, content: content2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq23 } = await import("drizzle-orm");
-    const rows = await db6.select({ analytics: contentAnalytics2 }).from(contentAnalytics2).innerJoin(content2, eq23(contentAnalytics2.contentId, content2.id)).where(eq23(content2.createdBy, ctx.user.id)).orderBy(contentAnalytics2.recordedAt);
+    const { eq: eq24 } = await import("drizzle-orm");
+    const { ownScope: ownScope2 } = await Promise.resolve().then(() => (init_access(), access_exports));
+    const rows = await db6.select({ analytics: contentAnalytics2 }).from(contentAnalytics2).innerJoin(content2, eq24(contentAnalytics2.contentId, content2.id)).where(ownScope2(ctx.user, content2.createdBy)).orderBy(contentAnalytics2.recordedAt);
     return rows.map((r) => r.analytics);
   })
 });
@@ -4883,6 +4929,7 @@ var newsletterRouter = router({
 });
 
 // server/routers/aiVisibility.ts
+init_access();
 init_db();
 import { z as z8 } from "zod";
 import { TRPCError as TRPCError5 } from "@trpc/server";
@@ -4917,7 +4964,7 @@ var aiVisibilityRouter = router({
   }),
   listBrands: protectedProcedure.query(async ({ ctx }) => {
     const d = await db();
-    return d.select().from(aiBrands).where(eq5(aiBrands.createdBy, ctx.user.id)).orderBy(desc(aiBrands.createdAt));
+    return d.select().from(aiBrands).where(ownScope(ctx.user, aiBrands.createdBy)).orderBy(desc(aiBrands.createdAt));
   }),
   deleteBrand: protectedProcedure.input(z8.object({ id: z8.number() })).mutation(async ({ ctx, input }) => {
     await assertBrand(ctx.user.id, input.id);
@@ -5886,6 +5933,7 @@ var agencySettingsRouter = router({
 import { z as z15 } from "zod";
 init_schema();
 init_db();
+init_access();
 init_llm();
 import { eq as eq7 } from "drizzle-orm";
 init_schema();
@@ -5893,7 +5941,7 @@ var recurringPlansRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     const db6 = await getDb();
     if (!db6) return [];
-    return db6.select().from(recurringPlans).where(eq7(recurringPlans.createdBy, ctx.user.id));
+    return db6.select().from(recurringPlans).where(ownScope(ctx.user, recurringPlans.createdBy));
   }),
   create: protectedProcedure.input(
     z15.object({
@@ -6541,6 +6589,7 @@ var wordpressRouter = router({
 // server/routers/designStandards.ts
 init_db();
 init_schema();
+init_access();
 import { z as z18 } from "zod";
 import { and as and7, eq as eq11, desc as desc3 } from "drizzle-orm";
 var designStandardsRouter = router({
@@ -6548,13 +6597,13 @@ var designStandardsRouter = router({
   getAll: protectedProcedure.query(async ({ ctx }) => {
     const db6 = await getDb();
     if (!db6) throw new Error("Database not available");
-    return db6.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isActive, 1))).orderBy(desc3(designStandards.isDefault), desc3(designStandards.createdAt));
+    return db6.select().from(designStandards).where(and7(ownScope(ctx.user, designStandards.createdBy), eq11(designStandards.isActive, 1))).orderBy(desc3(designStandards.isDefault), desc3(designStandards.createdAt));
   }),
   // Get default design standard
   getDefault: protectedProcedure.query(async ({ ctx }) => {
     const db6 = await getDb();
     if (!db6) throw new Error("Database not available");
-    const [standard] = await db6.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1))).limit(1);
+    const [standard] = await db6.select().from(designStandards).where(and7(ownScope(ctx.user, designStandards.createdBy), eq11(designStandards.isDefault, 1))).limit(1);
     return standard || null;
   }),
   // Get design standard by ID
@@ -6578,7 +6627,7 @@ var designStandardsRouter = router({
     const db6 = await getDb();
     if (!db6) throw new Error("Database not available");
     if (input.isDefault) {
-      await db6.update(designStandards).set({ isDefault: 0 }).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1)));
+      await db6.update(designStandards).set({ isDefault: 0 }).where(and7(ownScope(ctx.user, designStandards.createdBy), eq11(designStandards.isDefault, 1)));
     }
     const [result] = await db6.insert(designStandards).values({
       name: input.name,
@@ -6608,7 +6657,7 @@ var designStandardsRouter = router({
     if (!db6) throw new Error("Database not available");
     const { id, ...updates } = input;
     if (updates.isDefault) {
-      await db6.update(designStandards).set({ isDefault: 0 }).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1)));
+      await db6.update(designStandards).set({ isDefault: 0 }).where(and7(ownScope(ctx.user, designStandards.createdBy), eq11(designStandards.isDefault, 1)));
     }
     const updateData = {};
     if (updates.name !== void 0) updateData.name = updates.name;
@@ -6633,7 +6682,7 @@ var designStandardsRouter = router({
   initializeDefault: protectedProcedure.mutation(async ({ ctx }) => {
     const db6 = await getDb();
     if (!db6) throw new Error("Database not available");
-    const [existing] = await db6.select().from(designStandards).where(and7(eq11(designStandards.createdBy, ctx.user.id), eq11(designStandards.isDefault, 1))).limit(1);
+    const [existing] = await db6.select().from(designStandards).where(and7(ownScope(ctx.user, designStandards.createdBy), eq11(designStandards.isDefault, 1))).limit(1);
     if (existing) {
       return { success: false, message: "Default design standard already exists" };
     }
@@ -6715,6 +6764,7 @@ Always request an embedded Google Maps iframe before generating this section.`;
 // server/routers/bulkPublishing.ts
 init_db();
 init_schema();
+init_access();
 import { z as z19 } from "zod";
 import { and as and8, eq as eq12, inArray } from "drizzle-orm";
 var bulkPublishingRouter = router({
@@ -6737,7 +6787,7 @@ var bulkPublishingRouter = router({
     if (input.wordpressConnectionIds && input.wordpressConnectionIds.length > 0) {
       const connections = await db6.select().from(wordpressConnections).where(and8(
         inArray(wordpressConnections.id, input.wordpressConnectionIds),
-        eq12(wordpressConnections.createdBy, ctx.user.id)
+        ownScope(ctx.user, wordpressConnections.createdBy)
       ));
       for (const connection of connections) {
         try {
@@ -6828,6 +6878,7 @@ var bulkPublishingRouter = router({
 // server/routers/publishingAnalytics.ts
 init_db();
 init_schema();
+init_access();
 import { z as z20 } from "zod";
 import { and as and9, eq as eq13, desc as desc4, gte as gte2, sql as sql3 } from "drizzle-orm";
 var publishingAnalyticsRouter = router({
@@ -6839,7 +6890,7 @@ var publishingAnalyticsRouter = router({
       total: sql3`COUNT(*)`,
       successful: sql3`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END)`,
       failed: sql3`SUM(CASE WHEN ${wordpressPublishHistory.success} = 0 THEN 1 ELSE 0 END)`
-    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).where(eq13(content.createdBy, ctx.user.id));
+    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).where(ownScope(ctx.user, content.createdBy));
     return {
       wordpress: {
         total: Number(wpStats?.total || 0),
@@ -6883,7 +6934,7 @@ var publishingAnalyticsRouter = router({
             WHERE ${wordpressPublishHistory.contentId} = ${content.id}
             AND ${wordpressPublishHistory.success} = 1
           )`
-    }).from(content).where(eq13(content.createdBy, ctx.user.id)).orderBy(sql3`(
+    }).from(content).where(ownScope(ctx.user, content.createdBy)).orderBy(sql3`(
           SELECT COUNT(*) FROM ${wordpressPublishHistory} WHERE ${wordpressPublishHistory.contentId} = ${content.id} AND ${wordpressPublishHistory.success} = 1
         ) DESC`).limit(input.limit);
     return topContent.map((item) => ({
@@ -6903,7 +6954,7 @@ var publishingAnalyticsRouter = router({
       url: wordpressPublishHistory.wordpressPostUrl,
       success: wordpressPublishHistory.success,
       publishedAt: wordpressPublishHistory.publishedAt
-    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).leftJoin(wordpressConnections, eq13(wordpressPublishHistory.connectionId, wordpressConnections.id)).where(eq13(content.createdBy, ctx.user.id)).orderBy(desc4(wordpressPublishHistory.publishedAt)).limit(input.limit);
+    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).leftJoin(wordpressConnections, eq13(wordpressPublishHistory.connectionId, wordpressConnections.id)).where(ownScope(ctx.user, content.createdBy)).orderBy(desc4(wordpressPublishHistory.publishedAt)).limit(input.limit);
     return wpActivity;
   }),
   // Get publishing trends over time (last 30 days)
@@ -6916,7 +6967,7 @@ var publishingAnalyticsRouter = router({
       date: sql3`DATE(${wordpressPublishHistory.publishedAt}) as date`,
       count: sql3`COUNT(*) as count`,
       successful: sql3`SUM(CASE WHEN ${wordpressPublishHistory.success} = 1 THEN 1 ELSE 0 END) as successful`
-    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).where(and9(gte2(wordpressPublishHistory.publishedAt, thirtyDaysAgo), eq13(content.createdBy, ctx.user.id))).groupBy(sql3`date`).orderBy(sql3`date`);
+    }).from(wordpressPublishHistory).innerJoin(content, eq13(wordpressPublishHistory.contentId, content.id)).where(and9(gte2(wordpressPublishHistory.publishedAt, thirtyDaysAgo), ownScope(ctx.user, content.createdBy))).groupBy(sql3`date`).orderBy(sql3`date`);
     return {
       wordpress: wpTrends
     };
@@ -6924,6 +6975,7 @@ var publishingAnalyticsRouter = router({
 });
 
 // server/routers/siteAudit.ts
+init_access();
 init_db();
 import { z as z21 } from "zod";
 import { TRPCError as TRPCError6 } from "@trpc/server";
@@ -6998,7 +7050,7 @@ var siteAuditRouter = router({
   list: protectedProcedure.input(z21.object({ clientId: z21.number() })).query(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
     const d = await db2();
-    return d.select().from(siteAudits).where(and10(eq14(siteAudits.clientId, input.clientId), eq14(siteAudits.createdBy, ctx.user.id))).orderBy(desc5(siteAudits.createdAt)).limit(20);
+    return d.select().from(siteAudits).where(and10(eq14(siteAudits.clientId, input.clientId), ownScope(ctx.user, siteAudits.createdBy))).orderBy(desc5(siteAudits.createdAt)).limit(20);
   }),
   // Per-page results for one audit.
   pages: protectedProcedure.input(z21.object({ auditId: z21.number() })).query(async ({ ctx, input }) => {
@@ -7009,6 +7061,7 @@ var siteAuditRouter = router({
 });
 
 // server/routers/rankTracking.ts
+init_access();
 init_db();
 import { z as z22 } from "zod";
 import { TRPCError as TRPCError7 } from "@trpc/server";
@@ -7051,7 +7104,7 @@ var rankTrackingRouter = router({
   listKeywords: protectedProcedure.input(z22.object({ clientId: z22.number() })).query(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
     const d = await db3();
-    const keywords = await d.select().from(trackedKeywords).where(and11(eq15(trackedKeywords.clientId, input.clientId), eq15(trackedKeywords.createdBy, ctx.user.id))).orderBy(asc2(trackedKeywords.createdAt));
+    const keywords = await d.select().from(trackedKeywords).where(and11(eq15(trackedKeywords.clientId, input.clientId), ownScope(ctx.user, trackedKeywords.createdBy))).orderBy(asc2(trackedKeywords.createdAt));
     if (keywords.length === 0) return [];
     const ids = keywords.map((k) => k.id);
     const snaps = await d.select().from(rankSnapshots).where(inArray2(rankSnapshots.keywordId, ids)).orderBy(desc6(rankSnapshots.checkedAt));
@@ -7122,6 +7175,7 @@ var rankTrackingRouter = router({
 });
 
 // server/routers/backlinks.ts
+init_access();
 init_db();
 import { z as z23 } from "zod";
 import { TRPCError as TRPCError8 } from "@trpc/server";
@@ -7174,7 +7228,7 @@ var backlinksRouter = router({
   latest: protectedProcedure.input(z23.object({ clientId: z23.number() })).query(async ({ ctx, input }) => {
     await assertClient(ctx.user.id, input.clientId);
     const d = await db4();
-    const [snap] = await d.select().from(backlinkSnapshots).where(and12(eq16(backlinkSnapshots.clientId, input.clientId), eq16(backlinkSnapshots.createdBy, ctx.user.id))).orderBy(desc7(backlinkSnapshots.createdAt)).limit(1);
+    const [snap] = await d.select().from(backlinkSnapshots).where(and12(eq16(backlinkSnapshots.clientId, input.clientId), ownScope(ctx.user, backlinkSnapshots.createdBy))).orderBy(desc7(backlinkSnapshots.createdAt)).limit(1);
     if (!snap) return null;
     return {
       snapshot: snap,
@@ -7208,7 +7262,7 @@ var backlinksRouter = router({
       referringDomains: backlinkSnapshots.referringDomains,
       rank: backlinkSnapshots.rank,
       createdAt: backlinkSnapshots.createdAt
-    }).from(backlinkSnapshots).where(and12(eq16(backlinkSnapshots.clientId, input.clientId), eq16(backlinkSnapshots.createdBy, ctx.user.id))).orderBy(backlinkSnapshots.createdAt).limit(60);
+    }).from(backlinkSnapshots).where(and12(eq16(backlinkSnapshots.clientId, input.clientId), ownScope(ctx.user, backlinkSnapshots.createdBy))).orderBy(backlinkSnapshots.createdAt).limit(60);
     return rows;
   })
 });
@@ -7222,6 +7276,52 @@ function safeParse(json) {
   }
 }
 
+// server/routers/team.ts
+import { z as z24 } from "zod";
+import { TRPCError as TRPCError9 } from "@trpc/server";
+init_db();
+init_schema();
+import { eq as eq17, desc as desc8 } from "drizzle-orm";
+var teamRouter = router({
+  // List every agency account and its role.
+  list: adminProcedure.query(async () => {
+    const db6 = await getDb();
+    if (!db6) return [];
+    return db6.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      createdAt: users.createdAt,
+      lastSignedIn: users.lastSignedIn
+    }).from(users).orderBy(desc8(users.createdAt));
+  }),
+  // Promote a teammate to admin or demote them to a regular member. You can't change
+  // your own role, which also guarantees at least one admin always remains.
+  setRole: adminProcedure.input(
+    z24.object({
+      userId: z24.number(),
+      role: z24.enum(["admin", "user"])
+    })
+  ).mutation(async ({ ctx, input }) => {
+    if (input.userId === ctx.user.id) {
+      throw new TRPCError9({
+        code: "BAD_REQUEST",
+        message: "You can't change your own role."
+      });
+    }
+    const db6 = await getDb();
+    if (!db6) {
+      throw new TRPCError9({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+    }
+    const [updated] = await db6.update(users).set({ role: input.role, updatedAt: /* @__PURE__ */ new Date() }).where(eq17(users.id, input.userId)).returning({ id: users.id, role: users.role });
+    if (!updated) {
+      throw new TRPCError9({ code: "NOT_FOUND", message: "User not found" });
+    }
+    return updated;
+  })
+});
+
 // server/routers.ts
 function publicUser(user) {
   const { passwordHash, ...safe } = user;
@@ -7232,14 +7332,14 @@ var appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user ? publicUser(opts.ctx.user) : null),
-    signup: publicProcedure.input(z24.object({
-      email: z24.string().email(),
-      password: z24.string().min(8, "Password must be at least 8 characters"),
-      name: z24.string().optional()
+    signup: publicProcedure.input(z25.object({
+      email: z25.string().email(),
+      password: z25.string().min(8, "Password must be at least 8 characters"),
+      name: z25.string().optional()
     })).mutation(async ({ ctx, input }) => {
       const existing = await getUserByEmail(input.email);
       if (existing) {
-        throw new TRPCError9({ code: "CONFLICT", message: "An account with this email already exists" });
+        throw new TRPCError10({ code: "CONFLICT", message: "An account with this email already exists" });
       }
       const passwordHash = await bcrypt2.hash(input.password, 10);
       const openId = nanoid4();
@@ -7256,17 +7356,17 @@ var appRouter = router({
       ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: SESSION_TTL_MS });
       return publicUser(user);
     }),
-    login: publicProcedure.input(z24.object({
-      email: z24.string().email(),
-      password: z24.string()
+    login: publicProcedure.input(z25.object({
+      email: z25.string().email(),
+      password: z25.string()
     })).mutation(async ({ ctx, input }) => {
       const user = await getUserByEmail(input.email);
       if (!user || !user.passwordHash) {
-        throw new TRPCError9({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        throw new TRPCError10({ code: "UNAUTHORIZED", message: "Invalid email or password" });
       }
       const ok = await bcrypt2.compare(input.password, user.passwordHash);
       if (!ok) {
-        throw new TRPCError9({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        throw new TRPCError10({ code: "UNAUTHORIZED", message: "Invalid email or password" });
       }
       const token = await sdk.createSessionToken(user.openId, { name: user.name || "", ver: user.tokenVersion ?? 0, expiresInMs: SESSION_TTL_MS });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -7294,38 +7394,38 @@ var appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return getClientsByUser(ctx.user.id);
     }),
-    getById: protectedProcedure.input(z24.object({ id: z24.number() })).query(async ({ ctx, input }) => {
+    getById: protectedProcedure.input(z25.object({ id: z25.number() })).query(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.id);
       return getClientById(input.id);
     }),
-    create: protectedProcedure.input(z24.object({
-      name: z24.string().min(1),
-      email: z24.string().email().optional(),
-      company: z24.string().optional(),
-      notes: z24.string().optional(),
-      phone: z24.string().optional(),
-      address: z24.string().optional(),
-      city: z24.string().optional(),
-      state: z24.string().optional(),
-      zipCode: z24.string().optional(),
-      country: z24.string().optional(),
-      businessName: z24.string().optional(),
-      businessType: z24.string().optional(),
-      industry: z24.string().optional(),
-      businessPhone: z24.string().optional(),
-      businessEmail: z24.string().email().optional().or(z24.literal("")),
-      businessWebsite: z24.string().optional(),
-      businessAddress: z24.string().optional(),
-      websiteUrl: z24.string().optional(),
-      websitePlatform: z24.string().optional(),
-      websiteLoginUrl: z24.string().optional(),
-      websiteUsername: z24.string().optional(),
-      websitePassword: z24.string().optional(),
-      websiteNotes: z24.string().optional(),
-      socialFacebook: z24.string().optional(),
-      socialInstagram: z24.string().optional(),
-      socialLinkedin: z24.string().optional(),
-      socialTwitter: z24.string().optional()
+    create: protectedProcedure.input(z25.object({
+      name: z25.string().min(1),
+      email: z25.string().email().optional(),
+      company: z25.string().optional(),
+      notes: z25.string().optional(),
+      phone: z25.string().optional(),
+      address: z25.string().optional(),
+      city: z25.string().optional(),
+      state: z25.string().optional(),
+      zipCode: z25.string().optional(),
+      country: z25.string().optional(),
+      businessName: z25.string().optional(),
+      businessType: z25.string().optional(),
+      industry: z25.string().optional(),
+      businessPhone: z25.string().optional(),
+      businessEmail: z25.string().email().optional().or(z25.literal("")),
+      businessWebsite: z25.string().optional(),
+      businessAddress: z25.string().optional(),
+      websiteUrl: z25.string().optional(),
+      websitePlatform: z25.string().optional(),
+      websiteLoginUrl: z25.string().optional(),
+      websiteUsername: z25.string().optional(),
+      websitePassword: z25.string().optional(),
+      websiteNotes: z25.string().optional(),
+      socialFacebook: z25.string().optional(),
+      socialInstagram: z25.string().optional(),
+      socialLinkedin: z25.string().optional(),
+      socialTwitter: z25.string().optional()
     })).mutation(async ({ ctx, input }) => {
       const clientId = await createClient({
         ...input,
@@ -7333,38 +7433,38 @@ var appRouter = router({
       });
       return { id: clientId };
     }),
-    update: protectedProcedure.input(z24.object({
-      id: z24.number(),
-      name: z24.string().min(1).optional(),
-      email: z24.string().email().optional().or(z24.literal("")),
-      company: z24.string().optional(),
-      notes: z24.string().optional(),
-      phone: z24.string().optional(),
-      address: z24.string().optional(),
-      city: z24.string().optional(),
-      state: z24.string().optional(),
-      zipCode: z24.string().optional(),
-      country: z24.string().optional(),
-      businessName: z24.string().optional(),
-      businessType: z24.string().optional(),
-      industry: z24.string().optional(),
-      businessPhone: z24.string().optional(),
-      businessEmail: z24.string().email().optional().or(z24.literal("")),
-      businessWebsite: z24.string().optional(),
-      businessAddress: z24.string().optional(),
-      websiteUrl: z24.string().optional(),
-      websitePlatform: z24.string().optional(),
-      websiteLoginUrl: z24.string().optional(),
-      websiteUsername: z24.string().optional(),
-      websitePassword: z24.string().optional(),
-      websiteNotes: z24.string().optional(),
-      socialFacebook: z24.string().optional(),
-      socialInstagram: z24.string().optional(),
-      socialLinkedin: z24.string().optional(),
-      socialTwitter: z24.string().optional(),
-      monthlyBudget: z24.string().optional(),
-      budgetAlertThreshold: z24.number().min(0).max(100).optional(),
-      slug: z24.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug may contain only lowercase letters, numbers, and hyphens").min(1).max(100).optional()
+    update: protectedProcedure.input(z25.object({
+      id: z25.number(),
+      name: z25.string().min(1).optional(),
+      email: z25.string().email().optional().or(z25.literal("")),
+      company: z25.string().optional(),
+      notes: z25.string().optional(),
+      phone: z25.string().optional(),
+      address: z25.string().optional(),
+      city: z25.string().optional(),
+      state: z25.string().optional(),
+      zipCode: z25.string().optional(),
+      country: z25.string().optional(),
+      businessName: z25.string().optional(),
+      businessType: z25.string().optional(),
+      industry: z25.string().optional(),
+      businessPhone: z25.string().optional(),
+      businessEmail: z25.string().email().optional().or(z25.literal("")),
+      businessWebsite: z25.string().optional(),
+      businessAddress: z25.string().optional(),
+      websiteUrl: z25.string().optional(),
+      websitePlatform: z25.string().optional(),
+      websiteLoginUrl: z25.string().optional(),
+      websiteUsername: z25.string().optional(),
+      websitePassword: z25.string().optional(),
+      websiteNotes: z25.string().optional(),
+      socialFacebook: z25.string().optional(),
+      socialInstagram: z25.string().optional(),
+      socialLinkedin: z25.string().optional(),
+      socialTwitter: z25.string().optional(),
+      monthlyBudget: z25.string().optional(),
+      budgetAlertThreshold: z25.number().min(0).max(100).optional(),
+      slug: z25.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug may contain only lowercase letters, numbers, and hyphens").min(1).max(100).optional()
     })).mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input;
       await assertClient(ctx.user.id, id);
@@ -7372,22 +7472,22 @@ var appRouter = router({
       return { success: true };
     }),
     // Generate (and persist) a portal slug for a client if it doesn't have one yet.
-    ensurePortalSlug: protectedProcedure.input(z24.object({ clientId: z24.number() })).mutation(async ({ ctx, input }) => {
+    ensurePortalSlug: protectedProcedure.input(z25.object({ clientId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { ensureClientSlug: ensureClientSlug2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       return { slug: await ensureClientSlug2(input.clientId) };
     }),
-    delete: protectedProcedure.input(z24.object({ id: z24.number() })).mutation(async ({ ctx, input }) => {
+    delete: protectedProcedure.input(z25.object({ id: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.id);
       await deleteClient(input.id);
       return { success: true };
     }),
-    getMonthlyCost: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {
+    getMonthlyCost: protectedProcedure.input(z25.object({ clientId: z25.number() })).query(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { getClientMonthlyCost: getClientMonthlyCost2 } = await Promise.resolve().then(() => (init_budgetTracking(), budgetTracking_exports));
       return { cost: await getClientMonthlyCost2(input.clientId) };
     }),
-    getBudgetStatus: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {
+    getBudgetStatus: protectedProcedure.input(z25.object({ clientId: z25.number() })).query(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { checkClientBudgetAlert: checkClientBudgetAlert2 } = await Promise.resolve().then(() => (init_budgetTracking(), budgetTracking_exports));
       return await checkClientBudgetAlert2(input.clientId);
@@ -7399,9 +7499,9 @@ var appRouter = router({
       const { getModelPerformanceMetrics: getModelPerformanceMetrics2 } = await Promise.resolve().then(() => (init_modelPerformance(), modelPerformance_exports));
       return await getModelPerformanceMetrics2(ctx.user.id);
     }),
-    compareModels: protectedProcedure.input(z24.object({
-      model1: z24.string(),
-      model2: z24.string()
+    compareModels: protectedProcedure.input(z25.object({
+      model1: z25.string(),
+      model2: z25.string()
     })).query(async ({ ctx, input }) => {
       const { compareModels: compareModels2 } = await Promise.resolve().then(() => (init_modelPerformance(), modelPerformance_exports));
       return await compareModels2(input.model1, input.model2, ctx.user.id);
@@ -7412,21 +7512,21 @@ var appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return getContentWithClient(ctx.user.id);
     }),
-    getById: protectedProcedure.input(z24.object({ id: z24.number() })).query(async ({ ctx, input }) => {
+    getById: protectedProcedure.input(z25.object({ id: z25.number() })).query(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.id);
       return getContentById(input.id);
     }),
-    listByClient: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {
+    listByClient: protectedProcedure.input(z25.object({ clientId: z25.number() })).query(async ({ ctx, input }) => {
       const allContent = await getContentWithClient(ctx.user.id);
       return allContent.filter((item) => item.content.clientId === input.clientId).map((item) => item.content);
     }),
-    generate: protectedProcedure.use(limitLlmSingle).input(z24.object({
-      clientId: z24.number(),
-      topic: z24.string().min(1),
-      customPrompt: z24.string().optional(),
-      shouldGenerateImage: z24.boolean().default(true),
-      aiModel: z24.string().optional(),
-      contentType: z24.enum(["blog", "newsletter", "social", "landing", "email"]).default("blog")
+    generate: protectedProcedure.use(limitLlmSingle).input(z25.object({
+      clientId: z25.number(),
+      topic: z25.string().min(1),
+      customPrompt: z25.string().optional(),
+      shouldGenerateImage: z25.boolean().default(true),
+      aiModel: z25.string().optional(),
+      contentType: z25.enum(["blog", "newsletter", "social", "landing", "email"]).default("blog")
     })).mutation(async ({ ctx, input }) => {
       const { clientId, topic, customPrompt, shouldGenerateImage, aiModel, contentType } = input;
       await assertClient(ctx.user.id, clientId);
@@ -7514,14 +7614,14 @@ var appRouter = router({
       }
       return { id: contentId, title, content: generatedContent, imageUrl };
     }),
-    update: protectedProcedure.input(z24.object({
-      id: z24.number(),
-      title: z24.string().optional(),
-      content: z24.string().optional(),
-      status: z24.enum(["draft", "in_progress", "approved"]).optional(),
-      progress: z24.number().min(0).max(100).optional(),
-      scheduledPublishDate: z24.string().optional(),
-      publishedUrl: z24.string().optional()
+    update: protectedProcedure.input(z25.object({
+      id: z25.number(),
+      title: z25.string().optional(),
+      content: z25.string().optional(),
+      status: z25.enum(["draft", "in_progress", "approved"]).optional(),
+      progress: z25.number().min(0).max(100).optional(),
+      scheduledPublishDate: z25.string().optional(),
+      publishedUrl: z25.string().optional()
     })).mutation(async ({ ctx, input }) => {
       const { id, scheduledPublishDate, ...updates } = input;
       await assertContent(ctx.user.id, id);
@@ -7561,16 +7661,16 @@ You can now publish this content to the client's CMS via the Publishing page.`
       await updateContent(id, finalUpdates);
       return { success: true };
     }),
-    delete: protectedProcedure.input(z24.object({ id: z24.number() })).mutation(async ({ ctx, input }) => {
+    delete: protectedProcedure.input(z25.object({ id: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.id);
       await deleteContent(input.id);
       return { success: true };
     }),
-    regenerate: protectedProcedure.use(limitLlmSingle).input(z24.object({
-      id: z24.number(),
-      aiModel: z24.string(),
-      customPrompt: z24.string().optional(),
-      shouldGenerateImage: z24.boolean().default(false)
+    regenerate: protectedProcedure.use(limitLlmSingle).input(z25.object({
+      id: z25.number(),
+      aiModel: z25.string(),
+      customPrompt: z25.string().optional(),
+      shouldGenerateImage: z25.boolean().default(false)
     })).mutation(async ({ ctx, input }) => {
       const { id, aiModel, customPrompt, shouldGenerateImage } = input;
       await assertContent(ctx.user.id, id);
@@ -7639,7 +7739,7 @@ You can now publish this content to the client's CMS via the Publishing page.`
       }
       return { id, title, content: generatedContent, imageUrl };
     }),
-    exportHtml: protectedProcedure.input(z24.object({ id: z24.number() })).query(async ({ ctx, input }) => {
+    exportHtml: protectedProcedure.input(z25.object({ id: z25.number() })).query(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.id);
       const content2 = await getContentById(input.id);
       if (!content2) throw new Error("Content not found");
@@ -7653,9 +7753,9 @@ You can now publish this content to the client's CMS via the Publishing page.`
         createdAt: content2.createdAt
       };
     }),
-    schedule: protectedProcedure.input(z24.object({
-      contentId: z24.number(),
-      scheduledPublishDate: z24.date()
+    schedule: protectedProcedure.input(z25.object({
+      contentId: z25.number(),
+      scheduledPublishDate: z25.date()
     })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       await updateContent(input.contentId, {
@@ -7681,27 +7781,28 @@ You can now publish this content to the client's CMS via the Publishing page.`
   siteAudit: siteAuditRouter,
   rankTracking: rankTrackingRouter,
   backlinks: backlinksRouter,
+  team: teamRouter,
   agencySettings: agencySettingsRouter,
   recurringPlans: recurringPlansRouter,
   // Keyword Research
   keywords: router({
-    suggest: protectedProcedure.use(limitData).input(z24.object({
-      topic: z24.string().min(1),
-      count: z24.number().min(1).max(20).optional()
+    suggest: protectedProcedure.use(limitData).input(z25.object({
+      topic: z25.string().min(1),
+      count: z25.number().min(1).max(20).optional()
     })).mutation(async ({ input }) => {
       const { getKeywordSuggestions: getKeywordSuggestions2 } = await Promise.resolve().then(() => (init_keywordResearch(), keywordResearch_exports));
       return await getKeywordSuggestions2(input.topic, input.count);
     }),
-    analyze: protectedProcedure.input(z24.object({
-      content: z24.string().min(1),
-      targetKeywords: z24.array(z24.string())
+    analyze: protectedProcedure.input(z25.object({
+      content: z25.string().min(1),
+      targetKeywords: z25.array(z25.string())
     })).mutation(async ({ input }) => {
       const { analyzeContentKeywords: analyzeContentKeywords2 } = await Promise.resolve().then(() => (init_keywordResearch(), keywordResearch_exports));
       return await analyzeContentKeywords2(input.content, input.targetKeywords);
     }),
-    optimize: protectedProcedure.use(limitLlmSingle).input(z24.object({
-      content: z24.string().min(1),
-      targetKeywords: z24.array(z24.string())
+    optimize: protectedProcedure.use(limitLlmSingle).input(z25.object({
+      content: z25.string().min(1),
+      targetKeywords: z25.array(z25.string())
     })).mutation(async ({ input }) => {
       const { optimizeContentForKeywords: optimizeContentForKeywords2 } = await Promise.resolve().then(() => (init_keywordResearch(), keywordResearch_exports));
       return await optimizeContentForKeywords2(input.content, input.targetKeywords);
@@ -7709,17 +7810,17 @@ You can now publish this content to the client's CMS via the Publishing page.`
   }),
   // Competitor Research (DataForSEO Labs)
   competitors: router({
-    find: protectedProcedure.use(limitData).input(z24.object({
-      domain: z24.string().min(1),
-      limit: z24.number().min(1).max(50).optional()
+    find: protectedProcedure.use(limitData).input(z25.object({
+      domain: z25.string().min(1),
+      limit: z25.number().min(1).max(50).optional()
     })).mutation(async ({ input }) => {
       const { competitorDomains: competitorDomains2 } = await Promise.resolve().then(() => (init_dataforseo(), dataforseo_exports));
       return await competitorDomains2(input.domain, { limit: input.limit ?? 20 });
     }),
-    compare: protectedProcedure.use(limitData).input(z24.object({
-      yourDomain: z24.string().min(1),
-      competitorDomain: z24.string().min(1),
-      limit: z24.number().min(1).max(100).optional()
+    compare: protectedProcedure.use(limitData).input(z25.object({
+      yourDomain: z25.string().min(1),
+      competitorDomain: z25.string().min(1),
+      limit: z25.number().min(1).max(100).optional()
     })).mutation(async ({ input }) => {
       const { domainIntersection: domainIntersection2 } = await Promise.resolve().then(() => (init_dataforseo(), dataforseo_exports));
       return await domainIntersection2(input.yourDomain, input.competitorDomain, { limit: input.limit ?? 50 });
@@ -7727,12 +7828,12 @@ You can now publish this content to the client's CMS via the Publishing page.`
   }),
   // Performance Tracking
   performance: router({
-    getContentPerformance: protectedProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
+    getContentPerformance: protectedProcedure.input(z25.object({ contentId: z25.number() })).query(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { getContentPerformance: getContentPerformance2 } = await Promise.resolve().then(() => (init_performanceTracking(), performanceTracking_exports));
       return await getContentPerformance2(input.contentId);
     }),
-    getTopPerforming: protectedProcedure.input(z24.object({ limit: z24.number().default(10) })).query(async ({ ctx, input }) => {
+    getTopPerforming: protectedProcedure.input(z25.object({ limit: z25.number().default(10) })).query(async ({ ctx, input }) => {
       const { getTopPerformingContent: getTopPerformingContent2 } = await Promise.resolve().then(() => (init_performanceTracking(), performanceTracking_exports));
       return await getTopPerformingContent2(input.limit, ctx.user.id);
     }),
@@ -7740,17 +7841,17 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { getPerformanceSummary: getPerformanceSummary2 } = await Promise.resolve().then(() => (init_performanceTracking(), performanceTracking_exports));
       return await getPerformanceSummary2(ctx.user.id);
     }),
-    trackView: protectedProcedure.input(z24.object({ contentId: z24.number() })).mutation(async ({ ctx, input }) => {
+    trackView: protectedProcedure.input(z25.object({ contentId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { trackContentView: trackContentView2 } = await Promise.resolve().then(() => (init_performanceTracking(), performanceTracking_exports));
       return await trackContentView2(input.contentId);
     }),
-    trackClick: protectedProcedure.input(z24.object({ contentId: z24.number() })).mutation(async ({ ctx, input }) => {
+    trackClick: protectedProcedure.input(z25.object({ contentId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { trackContentClick: trackContentClick2 } = await Promise.resolve().then(() => (init_performanceTracking(), performanceTracking_exports));
       return await trackContentClick2(input.contentId);
     }),
-    getTrends: protectedProcedure.input(z24.object({ days: z24.number().default(30) })).query(async ({ ctx, input }) => {
+    getTrends: protectedProcedure.input(z25.object({ days: z25.number().default(30) })).query(async ({ ctx, input }) => {
       const { getPerformanceTrends: getPerformanceTrends2 } = await Promise.resolve().then(() => (init_performanceTracking(), performanceTracking_exports));
       return await getPerformanceTrends2(input.days, ctx.user.id);
     })
@@ -7763,18 +7864,18 @@ You can now publish this content to the client's CMS via the Publishing page.`
   publishingAnalytics: publishingAnalyticsRouter,
   // Portal Branding
   portalBranding: router({
-    get: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {
+    get: protectedProcedure.input(z25.object({ clientId: z25.number() })).query(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { getPortalBranding: getPortalBranding3 } = await Promise.resolve().then(() => (init_db(), db_exports));
       return await getPortalBranding3(input.clientId);
     }),
-    upsert: protectedProcedure.input(z24.object({
-      clientId: z24.number(),
-      logoUrl: z24.string().optional(),
-      primaryColor: z24.string().optional(),
-      secondaryColor: z24.string().optional(),
-      portalName: z24.string().optional(),
-      welcomeMessage: z24.string().optional()
+    upsert: protectedProcedure.input(z25.object({
+      clientId: z25.number(),
+      logoUrl: z25.string().optional(),
+      primaryColor: z25.string().optional(),
+      secondaryColor: z25.string().optional(),
+      portalName: z25.string().optional(),
+      welcomeMessage: z25.string().optional()
     })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { upsertPortalBranding: upsertPortalBranding2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -7784,52 +7885,52 @@ You can now publish this content to the client's CMS via the Publishing page.`
   // Client Portal Authentication
   clientPortal: router({
     // Invitation management
-    createInvitation: protectedProcedure.input(z24.object({
-      clientId: z24.number(),
-      email: z24.string().email(),
-      name: z24.string(),
-      role: z24.enum(["client_admin", "client_viewer"]).default("client_viewer")
+    createInvitation: protectedProcedure.input(z25.object({
+      clientId: z25.number(),
+      email: z25.string().email(),
+      name: z25.string(),
+      role: z25.enum(["client_admin", "client_viewer"]).default("client_viewer")
     })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { createClientPortalInvitation: createClientPortalInvitation2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await createClientPortalInvitation2(input.clientId, input.email, input.name, input.role);
     }),
     // Accept invitation (public endpoint)
-    acceptInvitation: publicProcedure.input(z24.object({
-      token: z24.string(),
-      password: z24.string().min(8)
+    acceptInvitation: publicProcedure.input(z25.object({
+      token: z25.string(),
+      password: z25.string().min(8)
     })).mutation(async ({ input }) => {
       const { acceptInvitation: acceptInvitation2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await acceptInvitation2(input.token, input.password);
     }),
     // Login (public endpoint)
-    login: publicProcedure.input(z24.object({
-      email: z24.string().email(),
-      password: z24.string()
+    login: publicProcedure.input(z25.object({
+      email: z25.string().email(),
+      password: z25.string()
     })).mutation(async ({ input }) => {
       const { loginClientPortalUser: loginClientPortalUser2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await loginClientPortalUser2(input.email, input.password);
     }),
     // Public branding for a client's branded login page (/portal/:slug). No auth:
     // returns only presentational fields, never any content or user data.
-    publicBranding: publicProcedure.input(z24.object({ slug: z24.string().min(1).max(100) })).query(async ({ input }) => {
+    publicBranding: publicProcedure.input(z25.object({ slug: z25.string().min(1).max(100) })).query(async ({ input }) => {
       const { getPublicBrandingBySlug: getPublicBrandingBySlug2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       return await getPublicBrandingBySlug2(input.slug);
     }),
     // Create an active portal login directly (no invitation round-trip).
-    createDirectLogin: protectedProcedure.input(z24.object({
-      clientId: z24.number(),
-      email: z24.string().email(),
-      name: z24.string().min(1),
-      password: z24.string().min(8),
-      role: z24.enum(["client_admin", "client_viewer"]).default("client_admin")
+    createDirectLogin: protectedProcedure.input(z25.object({
+      clientId: z25.number(),
+      email: z25.string().email(),
+      name: z25.string().min(1),
+      password: z25.string().min(8),
+      role: z25.enum(["client_admin", "client_viewer"]).default("client_admin")
     })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { createDirectPortalUser: createDirectPortalUser2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await createDirectPortalUser2(input.clientId, input.email, input.name, input.password, input.role);
     }),
     // Mint a portal session so the owner can view a client's portal without their password.
-    openAsClient: protectedProcedure.input(z24.object({ clientId: z24.number() })).mutation(async ({ ctx, input }) => {
+    openAsClient: protectedProcedure.input(z25.object({ clientId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const client = await getClientById(input.clientId);
       const { createPortalImpersonationToken: createPortalImpersonationToken2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
@@ -7852,26 +7953,26 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { getPortalContentList: getPortalContentList2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalContentList2(ctx.portalUser.clientId);
     }),
-    contentById: portalProcedure.input(z24.object({ id: z24.number() })).query(async ({ ctx, input }) => {
+    contentById: portalProcedure.input(z25.object({ id: z25.number() })).query(async ({ ctx, input }) => {
       const { getPortalContentById: getPortalContentById2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalContentById2(ctx.portalUser.clientId, input.id);
     }),
-    approve: portalProcedure.input(z24.object({ contentId: z24.number() })).mutation(async ({ ctx, input }) => {
+    approve: portalProcedure.input(z25.object({ contentId: z25.number() })).mutation(async ({ ctx, input }) => {
       if (ctx.portalUser.role !== "client_admin") {
-        throw new TRPCError9({ code: "FORBIDDEN", message: "Only portal admins can approve content" });
+        throw new TRPCError10({ code: "FORBIDDEN", message: "Only portal admins can approve content" });
       }
       const { portalApproveContent: portalApproveContent2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       const ok = await portalApproveContent2(ctx.portalUser.clientId, input.contentId);
-      if (!ok) throw new TRPCError9({ code: "NOT_FOUND", message: "Content not found" });
+      if (!ok) throw new TRPCError10({ code: "NOT_FOUND", message: "Content not found" });
       return { success: true };
     }),
-    requestRevision: portalProcedure.input(z24.object({ contentId: z24.number(), reason: z24.string().min(1) })).mutation(async ({ ctx, input }) => {
+    requestRevision: portalProcedure.input(z25.object({ contentId: z25.number(), reason: z25.string().min(1) })).mutation(async ({ ctx, input }) => {
       if (ctx.portalUser.role !== "client_admin") {
-        throw new TRPCError9({ code: "FORBIDDEN", message: "Only portal admins can request revisions" });
+        throw new TRPCError10({ code: "FORBIDDEN", message: "Only portal admins can request revisions" });
       }
       const { portalRequestRevision: portalRequestRevision2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       const ok = await portalRequestRevision2(ctx.portalUser.clientId, input.contentId);
-      if (!ok) throw new TRPCError9({ code: "NOT_FOUND", message: "Content not found" });
+      if (!ok) throw new TRPCError10({ code: "NOT_FOUND", message: "Content not found" });
       return { success: true };
     }),
     performance: portalProcedure.query(async ({ ctx }) => {
@@ -7886,11 +7987,11 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { getPortalServicePlan: getPortalServicePlan2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalServicePlan2(ctx.portalUser.clientId);
     }),
-    contentFeedback: portalProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
+    contentFeedback: portalProcedure.input(z25.object({ contentId: z25.number() })).query(async ({ ctx, input }) => {
       const { getPortalFeedback: getPortalFeedback2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalFeedback2(ctx.portalUser.clientId, input.contentId);
     }),
-    addFeedback: portalProcedure.input(z24.object({ contentId: z24.number(), note: z24.string().min(1).max(5e3) })).mutation(async ({ ctx, input }) => {
+    addFeedback: portalProcedure.input(z25.object({ contentId: z25.number(), note: z25.string().min(1).max(5e3) })).mutation(async ({ ctx, input }) => {
       const { addPortalFeedback: addPortalFeedback2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       const row = await addPortalFeedback2(
         ctx.portalUser.clientId,
@@ -7899,32 +8000,32 @@ You can now publish this content to the client's CMS via the Publishing page.`
         input.contentId,
         input.note
       );
-      if (!row) throw new TRPCError9({ code: "NOT_FOUND", message: "Content not found" });
+      if (!row) throw new TRPCError10({ code: "NOT_FOUND", message: "Content not found" });
       return row;
     }),
     // Agency-side read of the notes clients left on a piece of content.
-    feedbackForContent: protectedProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
+    feedbackForContent: protectedProcedure.input(z25.object({ contentId: z25.number() })).query(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { getFeedbackForContent: getFeedbackForContent2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getFeedbackForContent2(input.contentId);
     }),
     // List portal users for a client
-    listUsers: protectedProcedure.input(z24.object({ clientId: z24.number() })).query(async ({ ctx, input }) => {
+    listUsers: protectedProcedure.input(z25.object({ clientId: z25.number() })).query(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { listClientPortalUsers: listClientPortalUsers2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await listClientPortalUsers2(input.clientId);
     }),
     // Change password
-    changePassword: publicProcedure.input(z24.object({
-      userId: z24.number(),
-      oldPassword: z24.string(),
-      newPassword: z24.string().min(8)
+    changePassword: publicProcedure.input(z25.object({
+      userId: z25.number(),
+      oldPassword: z25.string(),
+      newPassword: z25.string().min(8)
     })).mutation(async ({ input }) => {
       const { changeClientPortalPassword: changeClientPortalPassword2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await changeClientPortalPassword2(input.userId, input.oldPassword, input.newPassword);
     }),
     // Deactivate user
-    deactivateUser: protectedProcedure.input(z24.object({ userId: z24.number() })).mutation(async ({ ctx, input }) => {
+    deactivateUser: protectedProcedure.input(z25.object({ userId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertPortalUser(ctx.user.id, input.userId);
       const { deactivateClientPortalUser: deactivateClientPortalUser2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await deactivateClientPortalUser2(input.userId);
@@ -7932,19 +8033,19 @@ You can now publish this content to the client's CMS via the Publishing page.`
   }),
   // Approval Workflow
   approvals: router({
-    requestApproval: protectedProcedure.input(z24.object({ contentId: z24.number() })).mutation(async ({ ctx, input }) => {
+    requestApproval: protectedProcedure.input(z25.object({ contentId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { requestApproval: requestApproval2 } = await Promise.resolve().then(() => (init_approvalWorkflow(), approvalWorkflow_exports));
       return await requestApproval2(input.contentId, ctx.user.id);
     }),
-    approve: protectedProcedure.input(z24.object({ contentId: z24.number() })).mutation(async ({ ctx, input }) => {
+    approve: protectedProcedure.input(z25.object({ contentId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { approveContent: approveContent2 } = await Promise.resolve().then(() => (init_approvalWorkflow(), approvalWorkflow_exports));
       return await approveContent2(input.contentId, ctx.user.id);
     }),
-    requestRevision: protectedProcedure.input(z24.object({
-      contentId: z24.number(),
-      reason: z24.string().min(1)
+    requestRevision: protectedProcedure.input(z25.object({
+      contentId: z25.number(),
+      reason: z25.string().min(1)
     })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { requestRevision: requestRevision2 } = await Promise.resolve().then(() => (init_approvalWorkflow(), approvalWorkflow_exports));
@@ -7954,19 +8055,19 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { getPendingApprovals: getPendingApprovals2 } = await Promise.resolve().then(() => (init_approvalWorkflow(), approvalWorkflow_exports));
       return await getPendingApprovals2(ctx.user.id);
     }),
-    getRevisionRequests: protectedProcedure.input(z24.object({ contentId: z24.number() })).query(async ({ ctx, input }) => {
+    getRevisionRequests: protectedProcedure.input(z25.object({ contentId: z25.number() })).query(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { getRevisionRequests: getRevisionRequests2 } = await Promise.resolve().then(() => (init_approvalWorkflow(), approvalWorkflow_exports));
       return await getRevisionRequests2(input.contentId);
     }),
-    completeRevision: protectedProcedure.input(z24.object({ revisionId: z24.number() })).mutation(async ({ ctx, input }) => {
+    completeRevision: protectedProcedure.input(z25.object({ revisionId: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertRevision(ctx.user.id, input.revisionId);
       const { completeRevision: completeRevision2 } = await Promise.resolve().then(() => (init_approvalWorkflow(), approvalWorkflow_exports));
       return await completeRevision2(input.revisionId);
     }),
-    addComment: protectedProcedure.input(z24.object({
-      contentId: z24.number(),
-      comment: z24.string().min(1)
+    addComment: protectedProcedure.input(z25.object({
+      contentId: z25.number(),
+      comment: z25.string().min(1)
     })).mutation(async ({ ctx, input }) => {
       await assertContent(ctx.user.id, input.contentId);
       const { addComment: addComment3 } = await Promise.resolve().then(() => (init_approvalWorkflow(), approvalWorkflow_exports));
@@ -7983,18 +8084,18 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { listABTests: listABTests2 } = await Promise.resolve().then(() => (init_abTesting(), abTesting_exports));
       return await listABTests2();
     }),
-    getById: protectedProcedure.input(z24.object({ id: z24.number() })).query(async ({ ctx, input }) => {
+    getById: protectedProcedure.input(z25.object({ id: z25.number() })).query(async ({ ctx, input }) => {
       await assertABTest(ctx.user.id, input.id);
       const { getABTestById: getABTestById2 } = await Promise.resolve().then(() => (init_abTesting(), abTesting_exports));
       return await getABTestById2(input.id);
     }),
-    create: protectedProcedure.use(limitLlmBatch).input(z24.object({
-      clientId: z24.number(),
-      topic: z24.string(),
-      customPrompt: z24.string().optional(),
-      shouldGenerateImage: z24.boolean().default(false),
-      modelA: z24.string(),
-      modelB: z24.string()
+    create: protectedProcedure.use(limitLlmBatch).input(z25.object({
+      clientId: z25.number(),
+      topic: z25.string(),
+      customPrompt: z25.string().optional(),
+      shouldGenerateImage: z25.boolean().default(false),
+      modelA: z25.string(),
+      modelB: z25.string()
     })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { assertClientWithinBudget: assertClientWithinBudget2 } = await Promise.resolve().then(() => (init_budgetTracking(), budgetTracking_exports));
@@ -8049,17 +8150,17 @@ You can now publish this content to the client's CMS via the Publishing page.`
       });
       return { id: testId };
     }),
-    setWinner: protectedProcedure.input(z24.object({
-      id: z24.number(),
-      winner: z24.enum(["A", "B"]),
-      notes: z24.string().optional()
+    setWinner: protectedProcedure.input(z25.object({
+      id: z25.number(),
+      winner: z25.enum(["A", "B"]),
+      notes: z25.string().optional()
     })).mutation(async ({ ctx, input }) => {
       await assertABTest(ctx.user.id, input.id);
       const { setABTestWinner: setABTestWinner2 } = await Promise.resolve().then(() => (init_abTesting(), abTesting_exports));
       await setABTestWinner2(input.id, input.winner, input.notes);
       return { success: true };
     }),
-    delete: protectedProcedure.input(z24.object({ id: z24.number() })).mutation(async ({ ctx, input }) => {
+    delete: protectedProcedure.input(z25.object({ id: z25.number() })).mutation(async ({ ctx, input }) => {
       await assertABTest(ctx.user.id, input.id);
       const { deleteABTest: deleteABTest2 } = await Promise.resolve().then(() => (init_abTesting(), abTesting_exports));
       await deleteABTest2(input.id);
