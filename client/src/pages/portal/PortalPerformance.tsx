@@ -836,7 +836,17 @@ function SiteAuditCard({ data }: { data: any }) {
   const health = typeof data.siteHealth === "number" ? data.siteHealth : null;
   const healthColor = health == null ? "text-muted-foreground" : health >= 90 ? "text-emerald-600" : health >= 70 ? "text-amber-600" : "text-red-500";
   const sevColor = (s?: string) =>
-    s === "error" ? "bg-red-500/10 text-red-600" : s === "warning" ? "bg-amber-500/10 text-amber-600" : "bg-blue-500/10 text-blue-600";
+    s === "resolved"
+      ? "bg-emerald-500/10 text-emerald-600"
+      : s === "error"
+      ? "bg-red-500/10 text-red-600"
+      : s === "warning"
+      ? "bg-amber-500/10 text-amber-600"
+      : "bg-blue-500/10 text-blue-600";
+  const issues: any[] = data.issues ?? [];
+  const allResolved = issues.length > 0 && issues.every((i) => i.severity === "resolved");
+  // A zero count is good news — don't paint it like a problem.
+  const countTone = (n: number, tone: string) => (n === 0 ? "text-emerald-600" : tone);
   return (
     <Card>
       <CardHeader>
@@ -859,23 +869,31 @@ function SiteAuditCard({ data }: { data: any }) {
               <div className="flex justify-between"><span className="text-muted-foreground">Broken</span><span className="font-medium">{data.broken.toLocaleString()}</span></div>
             )}
             {data.errors != null && (
-              <div className="flex justify-between"><span className="text-muted-foreground">Errors</span><span className="font-medium text-red-500">{data.errors.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Errors</span><span className={`font-medium ${countTone(data.errors, "text-red-500")}`}>{data.errors.toLocaleString()}</span></div>
             )}
             {data.warnings != null && (
-              <div className="flex justify-between"><span className="text-muted-foreground">Warnings</span><span className="font-medium text-amber-600">{data.warnings.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Warnings</span><span className={`font-medium ${countTone(data.warnings, "text-amber-600")}`}>{data.warnings.toLocaleString()}</span></div>
             )}
             {data.aiSearchHealth != null && (
               <div className="flex justify-between col-span-2"><span className="text-muted-foreground">AI Search Health</span><span className="font-medium text-emerald-600">{data.aiSearchHealth}%</span></div>
             )}
           </div>
         </div>
-        {(data.issues?.length ?? 0) > 0 && (
+        {issues.length > 0 && (
           <div className="space-y-2 pt-2 border-t">
-            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> Top issues</p>
-            {data.issues.slice(0, 6).map((it: any) => (
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              {allResolved ? (
+                <><ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> Recently resolved</>
+              ) : (
+                <><AlertTriangle className="h-3.5 w-3.5" /> Top issues</>
+              )}
+            </p>
+            {issues.slice(0, 6).map((it: any) => (
               <div key={it.label} className="flex items-center justify-between text-sm">
                 <span>{it.label}</span>
-                <Badge className={`text-xs ${sevColor(it.severity)}`}>{it.count.toLocaleString()}</Badge>
+                <Badge className={`text-xs ${sevColor(it.severity)}`}>
+                  {it.severity === "resolved" ? `${it.count.toLocaleString()} fixed` : it.count.toLocaleString()}
+                </Badge>
               </div>
             ))}
           </div>
