@@ -1,9 +1,34 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
-const plugins = [react(), tailwindcss()];
+/**
+ * The umami tag in index.html uses Vite's `%VITE_*%` HTML substitution, which leaves the
+ * placeholder verbatim when the variable is unset. The browser then requests
+ * `/%VITE_ANALYTICS_ENDPOINT%/umami`, gets the SPA's HTML back, and logs a 400 plus a MIME-type
+ * error on every page load. Drop the tag unless both variables are actually configured.
+ */
+function analyticsTag(): Plugin {
+  let configured = false;
+  return {
+    name: "drop-unconfigured-analytics",
+    configResolved(config) {
+      configured = Boolean(
+        config.env.VITE_ANALYTICS_ENDPOINT && config.env.VITE_ANALYTICS_WEBSITE_ID
+      );
+    },
+    transformIndexHtml(html) {
+      if (configured) return html;
+      return html.replace(
+        /[ \t]*<script[^>]*%VITE_ANALYTICS_ENDPOINT%[\s\S]*?<\/script>\r?\n?/,
+        ""
+      );
+    },
+  };
+}
+
+const plugins = [react(), tailwindcss(), analyticsTag()];
 
 export default defineConfig({
   plugins,
