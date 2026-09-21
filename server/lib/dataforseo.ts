@@ -188,12 +188,20 @@ export type RankOptions = {
   locationName?: string;
   languageName?: string;
   device?: "desktop" | "mobile";
+  /** How many SERP results to scan. Defaults to 100 so page-2+ rankings still register. */
+  depth?: number;
 };
 
 /**
  * Check where `domain` ranks for `keyword` in a live Google SERP. Pulls one real-time
- * SERP and returns the first organic result belonging to the domain (by `rank_absolute`),
- * or { position: null } when the domain isn't present in the returned results.
+ * SERP and returns the first organic result belonging to the domain, or { position: null }
+ * when the domain isn't present in the returned results.
+ *
+ * Position is `rank_group` — the position within the organic block — not `rank_absolute`,
+ * which counts ads, featured snippets and other SERP features too and so reads several
+ * places worse than the organic position Semrush and Google Search Console report.
+ * `depth` is set explicitly so keywords ranking past page one still register instead of
+ * coming back as "not ranking".
  */
 export async function checkKeywordRank(
   keyword: string,
@@ -207,6 +215,7 @@ export async function checkKeywordRank(
       location_name: opts.locationName ?? "United States",
       language_name: opts.languageName ?? "English",
       device: opts.device ?? "desktop",
+      depth: opts.depth ?? 100,
     },
   ]);
 
@@ -216,7 +225,7 @@ export async function checkKeywordRank(
     const itemDomain = normalizeDomain(item?.domain ?? item?.url ?? "");
     if (itemDomain === target) {
       return {
-        position: item?.rank_absolute ?? null,
+        position: item?.rank_group ?? item?.rank_absolute ?? null,
         url: item?.url ?? null,
       };
     }
