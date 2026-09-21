@@ -7,11 +7,13 @@
  * degrades gracefully to a post with no image.
  */
 import { nanoid } from "nanoid";
-import { generateImageWithGemini } from "../lib/gemini";
+import { generateImageWithGemini, type AspectRatio } from "../lib/gemini";
 import { uploadImage, extensionForMime } from "../lib/supabaseStorage";
 
 export type GenerateImageOptions = {
   prompt: string;
+  /** Defaults to the model's square output; pass "16:9" for a wide article hero. */
+  aspectRatio?: AspectRatio;
   originalImages?: Array<{
     url?: string;
     b64Json?: string;
@@ -26,7 +28,7 @@ export type GenerateImageResponse = {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
-  const { base64, mimeType } = await generateImageWithGemini(options.prompt);
+  const { base64, mimeType } = await generateImageWithGemini(options.prompt, options.aspectRatio);
   const path = `generated/${nanoid()}.${extensionForMime(mimeType)}`;
   const { url } = await uploadImage(base64, mimeType, path);
   return { url };

@@ -10,7 +10,13 @@ const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
 
 export type GeneratedImage = { base64: string; mimeType: string };
 
-export async function generateImageWithGemini(prompt: string): Promise<GeneratedImage> {
+/** Aspect ratios the image model accepts, e.g. "16:9" for a wide article hero. */
+export type AspectRatio = "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
+
+export async function generateImageWithGemini(
+  prompt: string,
+  aspectRatio?: AspectRatio
+): Promise<GeneratedImage> {
   if (!ENV.geminiApiKey) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
@@ -24,7 +30,10 @@ export async function generateImageWithGemini(prompt: string): Promise<Generated
     },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ["IMAGE"] },
+      generationConfig: {
+        responseModalities: ["IMAGE"],
+        ...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
+      },
     }),
   });
 
