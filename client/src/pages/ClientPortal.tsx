@@ -144,7 +144,7 @@ export default function ClientPortal() {
             return (
               <Card key={item.content.id} className="hover:border-primary/30 transition-colors">
                 <CardContent className="pt-6">
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold">{item.content.title}</h3>
@@ -166,7 +166,7 @@ export default function ClientPortal() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {/* View Content Dialog */}
                       <Dialog>
                         <DialogTrigger asChild>

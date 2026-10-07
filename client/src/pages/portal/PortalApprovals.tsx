@@ -4,7 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { getPortalToken, getPortalUserRaw, clearPortalSession } from "@/lib/portalSession";
+import { PortalShell, PortalError } from "@/components/portal/PortalShell";
+import { clientReviewBadgeClass, clientReviewLabel } from "@/lib/portalReview";
+import { getPortalToken, getPortalUserRaw, portalLoginPath, clearPortalSession } from "@/lib/portalSession";
 import { CheckCircle, Clock, FileText, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,13 +18,13 @@ export default function PortalApprovals() {
     const token = getPortalToken();
     const userData = getPortalUserRaw();
     if (!token || !userData) {
-      setLocation("/portal/login");
+      setLocation(portalLoginPath());
       return;
     }
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data: contentList, isLoading, refetch } = trpc.clientPortal.myContent.useQuery(
+  const { data: contentList, isLoading, error, refetch } = trpc.clientPortal.myContent.useQuery(
     undefined,
     { enabled: !!user }
   );
@@ -42,27 +44,14 @@ export default function PortalApprovals() {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
-  const pending = (contentList || []).filter((item: any) => item.status !== "approved");
+  const pending = (contentList || []).filter((item) => item.clientReview === "pending");
   const canApprove = user.role === "client_admin";
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Approvals</h1>
-              <p className="text-sm text-muted-foreground">Review and approve content awaiting your feedback</p>
-            </div>
-            <Link href="/portal/dashboard">
-              <Button variant="outline">Back to Dashboard</Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8">
-        {isLoading ? (
+    <PortalShell title="Approvals" subtitle="Content waiting for your review">
+        {error ? (
+          <PortalError onRetry={() => refetch()} />
+        ) : isLoading ? (
           <div className="text-center py-12 text-muted-foreground animate-pulse">Loading…</div>
         ) : pending.length === 0 ? (
           <Card className="p-12 text-center">
@@ -72,7 +61,7 @@ export default function PortalApprovals() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {pending.map((item: any) => (
+            {pending.map((item) => (
               <Card key={item.id} className="hover:shadow-md transition-shadow">
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between gap-4">
@@ -80,9 +69,9 @@ export default function PortalApprovals() {
                       <div className="flex items-center gap-3 mb-2">
                         <FileText className="h-5 w-5 text-muted-foreground" />
                         <h3 className="text-lg font-semibold">{item.title}</h3>
-                        <Badge className="bg-yellow-500/10 text-yellow-600">
+                        <Badge className={clientReviewBadgeClass(item.clientReview)}>
                           <Clock className="h-3 w-3 mr-1" />
-                          {item.status.replace("_", " ")}
+                          {clientReviewLabel(item.clientReview)}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground line-clamp-2">{item.topic}</p>
@@ -112,7 +101,6 @@ export default function PortalApprovals() {
             ))}
           </div>
         )}
-      </main>
-    </div>
+    </PortalShell>
   );
 }

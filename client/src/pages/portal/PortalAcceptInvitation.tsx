@@ -18,13 +18,14 @@ export default function PortalAcceptInvitation() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setToken(params.get("token"));
+    document.title = "Accept invitation";
   }, []);
 
   const acceptMutation = trpc.clientPortal.acceptInvitation.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
       setDone(true);
       toast.success("Password set! You can now sign in.");
-      setTimeout(() => setLocation("/portal/login"), 1500);
+      setTimeout(() => setLocation(result.slug ? `/portal/${encodeURIComponent(result.slug)}` : "/portal/login"), 1500);
     },
     onError: (error) => toast.error(error.message || "Failed to set password"),
   });

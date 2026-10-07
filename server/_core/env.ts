@@ -25,6 +25,8 @@ export const ENV = {
   zernioApiKey: clean(process.env.ZERNIO_API_KEY),
   resendApiKey: clean(process.env.RESEND_API_KEY),
   newsletterFrom: process.env.NEWSLETTER_FROM ?? "onboarding@resend.dev",
+  // Sender for client-portal invitation emails; falls back to the newsletter sender.
+  portalInviteFrom: process.env.PORTAL_INVITE_FROM || process.env.NEWSLETTER_FROM || "onboarding@resend.dev",
   openaiApiKey: clean(process.env.OPENAI_API_KEY),
   perplexityApiKey: clean(process.env.PERPLEXITY_API_KEY),
   // Run the weekly rank-tracking cron in this process. On by default in production;

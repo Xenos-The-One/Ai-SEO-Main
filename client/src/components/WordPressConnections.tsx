@@ -111,7 +111,7 @@ export function WordPressConnections({ clientId }: WordPressConnectionsProps) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Globe className="h-5 w-5" />

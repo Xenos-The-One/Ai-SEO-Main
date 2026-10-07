@@ -30,7 +30,8 @@ import {
 import { invokeLLM, DEFAULT_TEXT_MODEL } from "./_core/llm";
 import { generateImage } from "./_core/imageGeneration";
 import { assertClient, assertContent, assertABTest, assertPortalUser, assertRevision } from "./authz";
-import { limitLlmSingle, limitLlmBatch, limitData } from "./_core/rateLimiters";
+import { limitLlmSingle, limitLlmBatch, limitData, limitAuth, assertLoginAttemptAllowed } from "./_core/rateLimiters";
+import { burnPasswordCheck } from "./_core/passwordTiming";
 import { bulkRouter } from "./routers/bulk";
 import { templatesRouter } from "./routers/templates";
 import { collaborationRouter } from "./routers/collaboration";
@@ -55,12 +56,44 @@ import { rankTrackingRouter } from "./routers/rankTracking";
 import { backlinksRouter } from "./routers/backlinks";
 import { teamRouter } from "./routers/team";
 
+/** The app's own origin for links in emails, taken from the agency's request. */
+function appOrigin(req: { headers: Record<string, string | string[] | undefined>; protocol?: string }): string {
+  const origin = req.headers.origin;
+  if (typeof origin === "string" && /^https?:\/\/[^/]+$/.test(origin)) return origin;
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0] || req.protocol || "https";
+  return `${proto}://${req.headers.host}`;
+}
+
+/** Email a portal invitation link. Reports whether it went out; never throws. */
+async function emailPortalInvite(
+  req: Parameters<typeof appOrigin>[0],
+  clientId: number,
+  to: string,
+  name: string,
+  token: string,
+  expiresAt: Date
+) {
+  const client = await getClientById(clientId);
+  const { getPortalBranding } = await import("./clientPortalData");
+  const branding = await getPortalBranding(clientId);
+  const { sendPortalInviteEmail } = await import("./lib/portalInvite");
+  const result = await sendPortalInviteEmail({
+    to,
+    name,
+    portalName: branding?.portalName || `${client?.name ?? "your"} client portal`,
+    link: `${appOrigin(req)}/portal/accept-invitation?token=${token}`,
+    expiresAt,
+  });
+  return result.sent ? { emailSent: true as const } : { emailSent: false as const, emailError: result.reason };
+}
+
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => (opts.ctx.user ? publicUser(opts.ctx.user) : null)),
     signup: publicProcedure
+      .use(limitAuth)
       .input(z.object({
         email: z.string().email(),
         password: z.string().min(8, "Password must be at least 8 characters"),
@@ -87,13 +120,16 @@ export const appRouter = router({
         return publicUser(user);
       }),
     login: publicProcedure
+      .use(limitAuth)
       .input(z.object({
         email: z.string().email(),
         password: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        assertLoginAttemptAllowed("agency", input.email);
         const user = await getUserByEmail(input.email);
         if (!user || !user.passwordHash) {
+          await burnPasswordCheck(input.password);
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
         }
         const ok = await bcrypt.compare(input.password, user.passwordHash);
@@ -743,11 +779,28 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await assertClient(ctx.user.id, input.clientId);
         const { createClientPortalInvitation } = await import("./clientPortalAuth");
-        return await createClientPortalInvitation(input.clientId, input.email, input.name, input.role);
+        const invitation = await createClientPortalInvitation(input.clientId, input.email, input.name, input.role);
+        const email = await emailPortalInvite(ctx.req, input.clientId, input.email, input.name, invitation.token, invitation.expiresAt);
+        return { ...invitation, name: input.name, ...email };
+      }),
+
+    // Re-issue (and re-email) an invitation for a user who never set their password.
+    resendInvitation: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await assertPortalUser(ctx.user.id, input.userId);
+        const { regenerateInvitation } = await import("./clientPortalAuth");
+        const invitation = await regenerateInvitation(input.userId);
+        if (!invitation) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This user has no pending invitation" });
+        }
+        const email = await emailPortalInvite(ctx.req, invitation.clientId, invitation.email, invitation.name, invitation.token, invitation.expiresAt);
+        return { ...invitation, ...email };
       }),
     
     // Accept invitation (public endpoint)
     acceptInvitation: publicProcedure
+      .use(limitAuth)
       .input(z.object({
         token: z.string(),
         password: z.string().min(8),
@@ -759,11 +812,13 @@ export const appRouter = router({
     
     // Login (public endpoint)
     login: publicProcedure
+      .use(limitAuth)
       .input(z.object({
         email: z.string().email(),
         password: z.string(),
       }))
       .mutation(async ({ input }) => {
+        assertLoginAttemptAllowed("portal", input.email);
         const { loginClientPortalUser } = await import("./clientPortalAuth");
         return await loginClientPortalUser(input.email, input.password);
       }),
@@ -799,7 +854,7 @@ export const appRouter = router({
         await assertClient(ctx.user.id, input.clientId);
         const client = await getClientById(input.clientId);
         const { createPortalImpersonationToken } = await import("./clientPortalAuth");
-        return createPortalImpersonationToken(input.clientId, client?.name ?? "Client");
+        return createPortalImpersonationToken(input.clientId, client?.name ?? "Client", client?.slug ?? null);
       }),
 
     // --- Portal-authenticated endpoints (Bearer token; scoped to ctx.portalUser.clientId) ---
@@ -831,26 +886,36 @@ export const appRouter = router({
       }),
 
     approve: portalProcedure
-      .input(z.object({ contentId: z.number() }))
+      .input(z.object({ contentId: z.number(), comment: z.string().max(5000).optional() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.portalUser.role !== "client_admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Only portal admins can approve content" });
         }
         const { portalApproveContent } = await import("./clientPortalData");
-        const ok = await portalApproveContent(ctx.portalUser.clientId, input.contentId);
-        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Content not found" });
+        const ok = await portalApproveContent(ctx.portalUser.clientId, ctx.portalUser, input.contentId, input.comment);
+        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Content not found or not awaiting review" });
         return { success: true };
       }),
 
     requestRevision: portalProcedure
-      .input(z.object({ contentId: z.number(), reason: z.string().min(1) }))
+      .input(z.object({ contentId: z.number(), reason: z.string().trim().min(1).max(5000) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.portalUser.role !== "client_admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Only portal admins can request revisions" });
         }
         const { portalRequestRevision } = await import("./clientPortalData");
-        const ok = await portalRequestRevision(ctx.portalUser.clientId, input.contentId);
-        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Content not found" });
+        const ok = await portalRequestRevision(ctx.portalUser.clientId, ctx.portalUser, input.contentId, input.reason);
+        if (!ok) throw new TRPCError({ code: "NOT_FOUND", message: "Content not found or not awaiting review" });
+        return { success: true };
+      }),
+
+    // Agency: share a piece with the client for review, or resend it after changes.
+    sendForReview: protectedProcedure
+      .input(z.object({ contentId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await assertContent(ctx.user.id, input.contentId);
+        const { sendContentForClientReview } = await import("./clientPortalData");
+        await sendContentForClientReview(input.contentId);
         return { success: true };
       }),
 
@@ -909,16 +974,19 @@ export const appRouter = router({
         return await listClientPortalUsers(input.clientId);
       }),
     
-    // Change password
-    changePassword: publicProcedure
+    // Change the signed-in portal user's own password. Signs out all of their sessions.
+    changePassword: portalProcedure
+      .use(limitAuth)
       .input(z.object({
-        userId: z.number(),
         oldPassword: z.string(),
         newPassword: z.string().min(8),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.portalUser.userId === 0) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Owner previews can't change a client's password" });
+        }
         const { changeClientPortalPassword } = await import("./clientPortalAuth");
-        return await changeClientPortalPassword(input.userId, input.oldPassword, input.newPassword);
+        return await changeClientPortalPassword(ctx.portalUser.userId, input.oldPassword, input.newPassword);
       }),
     
     // Deactivate user

@@ -301,21 +301,21 @@ export default function Content() {
               </div>
               <Link href={`/content/${item.content.id}`}>
                 <CardContent className="p-6">
-                  <div className="flex gap-6">
+                  <div className="flex flex-col sm:flex-row gap-6">
                     {item.content.imageUrl ? (
                       <img
                         src={item.content.imageUrl}
                         alt={item.content.title}
-                        className="w-48 h-32 object-cover rounded-lg"
+                        className="w-full sm:w-48 h-32 shrink-0 object-cover rounded-lg"
                       />
                     ) : (
-                      <div className="w-48 h-32 bg-muted rounded-lg flex items-center justify-center">
+                      <div className="w-full sm:w-48 h-32 shrink-0 bg-muted rounded-lg flex items-center justify-center">
                         <ImageIcon className="h-8 w-8 text-muted-foreground" />
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between mb-2">
-                        <h3 className="text-xl font-semibold truncate">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <h3 className="text-xl font-semibold truncate min-w-0">
                           {item.content.title}
                         </h3>
                         <span
@@ -336,7 +336,7 @@ export default function Content() {
                       <p className="text-sm text-muted-foreground line-clamp-2">
                         {item.content.topic}
                       </p>
-                      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs text-muted-foreground">
                         <span>Tokens: {item.content.totalTokens}</span>
                         {item.content.webSearches > 0 && (
                           <span>Research: {item.content.urlsFetched} URLs</span>

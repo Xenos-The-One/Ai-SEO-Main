@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { getPortalToken, getPortalUserRaw } from "@/lib/portalSession";
-import { FileText, Search, Calendar, Eye, CheckCircle, Clock, XCircle } from "lucide-react";
+import { PortalShell, PortalError } from "@/components/portal/PortalShell";
+import { getPortalToken, getPortalUserRaw, portalLoginPath } from "@/lib/portalSession";
+import { clientReviewBadgeClass, clientReviewLabel } from "@/lib/portalReview";
+import { FileText, Search, Calendar, CheckCircle, Clock, Pencil } from "lucide-react";
 
 export default function PortalContent() {
   const [, setLocation] = useLocation();
@@ -19,14 +21,14 @@ export default function PortalContent() {
     const userData = getPortalUserRaw();
     
     if (!token || !userData) {
-      setLocation("/portal/login");
+      setLocation(portalLoginPath());
       return;
     }
     
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data: contentList, isLoading } = trpc.clientPortal.myContent.useQuery(
+  const { data: contentList, isLoading, error, refetch } = trpc.clientPortal.myContent.useQuery(
     undefined,
     { enabled: !!user }
   );
@@ -38,63 +40,38 @@ export default function PortalContent() {
   const clientContent = contentList || [];
 
   // Apply search and status filters
-  const filteredContent = clientContent.filter((item: any) => {
+  const filteredContent = clientContent.filter((item) => {
     const matchesSearch = !searchQuery || 
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.topic.toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesStatus = statusFilter === "all" || item.status === statusFilter;
+    const matchesStatus = statusFilter === "all" || item.clientReview === statusFilter;
     
     return matchesSearch && matchesStatus;
   });
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
+  const getStatusIcon = (state: string | null) => {
+    switch (state) {
       case "approved":
         return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "draft":
-        return <Clock className="h-4 w-4 text-yellow-500" />;
-      case "published":
-        return <Eye className="h-4 w-4 text-blue-500" />;
+      case "pending":
+        return <Clock className="h-4 w-4 text-orange-500" />;
+      case "changes_requested":
+        return <Pencil className="h-4 w-4 text-blue-500" />;
       default:
         return <FileText className="h-4 w-4" />;
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "approved":
-        return "bg-green-500/10 text-green-500";
-      case "draft":
-        return "bg-yellow-500/10 text-yellow-500";
-      case "published":
-        return "bg-blue-500/10 text-blue-500";
-      case "pending_approval":
-        return "bg-orange-500/10 text-orange-500";
-      default:
-        return "bg-muted text-muted-foreground";
-    }
-  };
+  const filters: { value: string; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "pending", label: "Awaiting review" },
+    { value: "changes_requested", label: "Changes requested" },
+    { value: "approved", label: "Approved" },
+  ];
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">My Content</h1>
-              <p className="text-sm text-muted-foreground">View and manage your content</p>
-            </div>
-            <Link href="/portal/dashboard">
-              <Button variant="outline">Back to Dashboard</Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+    <PortalShell title="Content" subtitle="Everything we've shared with you">
         {/* Filters */}
         <Card className="p-6 mb-6">
           <div className="flex flex-col md:flex-row gap-4">
@@ -107,43 +84,24 @@ export default function PortalContent() {
                 className="pl-10"
               />
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant={statusFilter === "all" ? "default" : "outline"}
-                onClick={() => setStatusFilter("all")}
-              >
-                All
-              </Button>
-              <Button
-                variant={statusFilter === "draft" ? "default" : "outline"}
-                onClick={() => setStatusFilter("draft")}
-              >
-                Drafts
-              </Button>
-              <Button
-                variant={statusFilter === "pending_approval" ? "default" : "outline"}
-                onClick={() => setStatusFilter("pending_approval")}
-              >
-                Pending
-              </Button>
-              <Button
-                variant={statusFilter === "approved" ? "default" : "outline"}
-                onClick={() => setStatusFilter("approved")}
-              >
-                Approved
-              </Button>
-              <Button
-                variant={statusFilter === "published" ? "default" : "outline"}
-                onClick={() => setStatusFilter("published")}
-              >
-                Published
-              </Button>
+            <div className="flex flex-wrap gap-2">
+              {filters.map((f) => (
+                <Button
+                  key={f.value}
+                  variant={statusFilter === f.value ? "default" : "outline"}
+                  onClick={() => setStatusFilter(f.value)}
+                >
+                  {f.label}
+                </Button>
+              ))}
             </div>
           </div>
         </Card>
 
         {/* Content List */}
-        {isLoading ? (
+        {error ? (
+          <PortalError onRetry={() => refetch()} />
+        ) : isLoading ? (
           <div className="text-center py-12">
             <div className="animate-pulse text-muted-foreground">Loading content...</div>
           </div>
@@ -154,18 +112,18 @@ export default function PortalContent() {
             <p className="text-muted-foreground">
               {searchQuery || statusFilter !== "all"
                 ? "Try adjusting your filters"
-                : "Your content will appear here once created"}
+                : "Pieces our team shares with you for review will appear here"}
             </p>
           </Card>
         ) : (
           <div className="grid gap-4">
-            {filteredContent.map((item: any) => (
+            {filteredContent.map((item) => (
               <Link key={item.id} href={`/portal/content/${item.id}`}>
                 <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        {getStatusIcon(item.status)}
+                        {getStatusIcon(item.clientReview)}
                         <h3 className="text-lg font-semibold">{item.title}</h3>
                       </div>
                       <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
@@ -188,8 +146,8 @@ export default function PortalContent() {
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <Badge className={getStatusColor(item.status)}>
-                        {item.status.replace("_", " ")}
+                      <Badge className={clientReviewBadgeClass(item.clientReview)}>
+                        {clientReviewLabel(item.clientReview)}
                       </Badge>
                     </div>
                   </div>
@@ -198,7 +156,6 @@ export default function PortalContent() {
             ))}
           </div>
         )}
-      </main>
-    </div>
+    </PortalShell>
   );
 }

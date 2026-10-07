@@ -217,7 +217,7 @@ export default function Publishing() {
       </div>
 
       {/* Action Buttons */}
-      <div className="flex gap-3 mb-6">
+      <div className="flex flex-wrap gap-3 mb-6">
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
             <Button>

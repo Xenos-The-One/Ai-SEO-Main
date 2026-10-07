@@ -1,4 +1,6 @@
+import { TRPCError } from "@trpc/server";
 import { rateLimit } from "./trpc";
+import { checkRateLimit } from "./rateLimit";
 
 /**
  * Shared rate-limit tiers for paid endpoints (per user). Endpoints that share a tier
@@ -22,6 +24,26 @@ export const limitLlmBatch = rateLimit({ name: "llm-batch", limit: 30, windowMs:
 
 /** DataForSEO + crawler/PageSpeed lookups. Cheap per call — allow heavy real use. */
 export const limitData = rateLimit({ name: "data", limit: 600, windowMs: 60_000 });
+
+/**
+ * Unauthenticated credential endpoints (portal login, invitation accept, password change),
+ * per caller IP. Leaves room for an office of people sharing one IP; blocks brute force.
+ */
+export const limitAuth = rateLimit({ name: "auth", limit: 30, windowMs: 15 * 60_000 });
+
+/**
+ * Cap login attempts per target email (from any IP), so guessing one account's password is
+ * limited even across many IPs. `scope` keeps agency and portal accounts separate.
+ */
+export function assertLoginAttemptAllowed(scope: "agency" | "portal", email: string): void {
+  const result = checkRateLimit(`login:${scope}:${email.trim().toLowerCase()}`, 10, 15 * 60_000);
+  if (!result.allowed) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `Too many sign-in attempts. Try again in ${Math.ceil(result.retryAfterSeconds / 60)} min.`,
+    });
+  }
+}
 
 /** Outbound sends (email newsletter, social posting) — high ceiling, only bites on abuse. */
 export const limitSend = rateLimit({ name: "send", limit: 500, windowMs: 60 * 60_000 });

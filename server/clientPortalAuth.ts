@@ -1,9 +1,10 @@
 import { getDb } from "./db";
 import { clientPortalUsers, clients } from "../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import * as crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { burnPasswordCheck } from "./_core/passwordTiming";
 
 const INVITATION_EXPIRY_HOURS = 72; // 3 days
 const BCRYPT_ROUNDS = 10;
@@ -118,12 +119,12 @@ export async function acceptInvitation(token: string, newPassword: string) {
     .limit(1);
 
   if (!user) {
-    throw new Error("Invalid invitation token");
+    throw new Error("This invitation link is invalid or has already been used.");
   }
 
   // Check if token expired
   if (user.invitationExpiry && new Date() > user.invitationExpiry) {
-    throw new Error("Invitation has expired");
+    throw new Error("This invitation has expired. Ask your account manager to resend it.");
   }
 
   // Update user with new password and activate
@@ -138,7 +139,37 @@ export async function acceptInvitation(token: string, newPassword: string) {
     })
     .where(eq(clientPortalUsers.id, user.id));
 
-  return { success: true, userId: user.id };
+  const [client] = await db.select({ slug: clients.slug })
+    .from(clients)
+    .where(eq(clients.id, user.clientId))
+    .limit(1);
+
+  return { success: true, userId: user.id, slug: client?.slug ?? null };
+}
+
+/**
+ * Issue a fresh invitation token (and expiry) for a user who was invited but never set a
+ * password. Returns null for anyone else — activated or deactivated accounts can't be
+ * re-invited this way.
+ */
+export async function regenerateInvitation(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [user] = await db.select()
+    .from(clientPortalUsers)
+    .where(eq(clientPortalUsers.id, userId))
+    .limit(1);
+  if (!user || user.isActive !== 0 || !user.invitationToken) return null;
+
+  const token = generateInvitationToken();
+  const expiry = new Date();
+  expiry.setHours(expiry.getHours() + INVITATION_EXPIRY_HOURS);
+  await db.update(clientPortalUsers)
+    .set({ invitationToken: token, invitationExpiry: expiry, updatedAt: new Date() })
+    .where(eq(clientPortalUsers.id, userId));
+
+  return { id: user.id, clientId: user.clientId, email: user.email, name: user.name, token, expiresAt: expiry };
 }
 
 /**
@@ -183,7 +214,7 @@ export async function createDirectPortalUser(
  * client's password. The token carries `userId: 0` (no backing portal-user row) — portal
  * endpoints authorize by the signed `clientId`, so read/approve actions still scope correctly.
  */
-export function createPortalImpersonationToken(clientId: number, clientName: string) {
+export function createPortalImpersonationToken(clientId: number, clientName: string, slug: string | null = null) {
   const token = jwt.sign(
     {
       userId: 0,
@@ -203,6 +234,7 @@ export function createPortalImpersonationToken(clientId: number, clientName: str
       email: "owner-preview@portal",
       name: `${clientName} (preview)`,
       role: "client_admin",
+      slug,
     },
   };
 }
@@ -221,17 +253,17 @@ export async function loginClientPortalUser(email: string, password: string) {
     .limit(1);
 
   if (!user) {
+    await burnPasswordCheck(password);
     throw new Error("Invalid email or password");
   }
 
-  // Check if active
-  if (user.isActive === 0) {
-    throw new Error("Account is not activated. Please check your invitation email.");
-  }
-
-  // Verify password
   if (!(await verifyPassword(password, user.passwordHash))) {
     throw new Error("Invalid email or password");
+  }
+
+  // Only disclose account state once the caller has proven they know the password.
+  if (user.isActive === 0) {
+    throw new Error("This portal account isn't active. Please contact your account manager.");
   }
 
   // Transparently upgrade legacy SHA-256 hashes to bcrypt on successful login.
@@ -247,6 +279,11 @@ export async function loginClientPortalUser(email: string, password: string) {
     .set({ lastLoginAt: new Date() })
     .where(eq(clientPortalUsers.id, user.id));
 
+  const [client] = await db.select({ slug: clients.slug })
+    .from(clients)
+    .where(eq(clients.id, user.clientId))
+    .limit(1);
+
   // Generate JWT token
   const token = jwt.sign(
     {
@@ -255,6 +292,7 @@ export async function loginClientPortalUser(email: string, password: string) {
       email: user.email,
       role: user.role,
       type: "client_portal",
+      ver: user.tokenVersion,
     },
     getJwtSecret(),
     { expiresIn: "7d" }
@@ -268,6 +306,7 @@ export async function loginClientPortalUser(email: string, password: string) {
       email: user.email,
       name: user.name,
       role: user.role,
+      slug: client?.slug ?? null,
     },
   };
 }
@@ -283,6 +322,7 @@ export function verifyClientPortalToken(token: string) {
       email: string;
       role: string;
       type: string;
+      ver?: number;
     };
 
     if (decoded.type !== "client_portal") {
@@ -293,6 +333,30 @@ export function verifyClientPortalToken(token: string) {
   } catch (error) {
     throw new Error("Invalid or expired token");
   }
+}
+
+/**
+ * Whether a signature-valid portal token still belongs to a live session: the portal user
+ * must exist, be active, belong to the token's client, and the token must carry the user's
+ * current token version (bumped on deactivation and password change). Owner-preview tokens
+ * (userId 0) have no backing row and are short-lived, so they pass.
+ */
+export async function isPortalSessionLive(decoded: { userId: number; clientId: number; ver?: number }) {
+  if (decoded.userId === 0) return true;
+  const db = await getDb();
+  if (!db) return false;
+  const [user] = await db.select({
+    clientId: clientPortalUsers.clientId,
+    isActive: clientPortalUsers.isActive,
+    tokenVersion: clientPortalUsers.tokenVersion,
+  })
+    .from(clientPortalUsers)
+    .where(eq(clientPortalUsers.id, decoded.userId))
+    .limit(1);
+  return !!user
+    && user.isActive === 1
+    && user.clientId === decoded.clientId
+    && user.tokenVersion === (decoded.ver ?? 0);
 }
 
 /**
@@ -334,13 +398,20 @@ export async function listClientPortalUsers(clientId: number) {
     name: clientPortalUsers.name,
     role: clientPortalUsers.role,
     isActive: clientPortalUsers.isActive,
+    invitationToken: clientPortalUsers.invitationToken,
+    invitationExpiry: clientPortalUsers.invitationExpiry,
     lastLoginAt: clientPortalUsers.lastLoginAt,
     createdAt: clientPortalUsers.createdAt,
   })
     .from(clientPortalUsers)
     .where(eq(clientPortalUsers.clientId, clientId));
 
-  return users;
+  // Never send invitation tokens to the browser; only whether an invite is outstanding.
+  return users.map(({ invitationToken, invitationExpiry, ...u }) => ({
+    ...u,
+    invitePending: u.isActive === 0 && !!invitationToken,
+    inviteExpired: u.isActive === 0 && !!invitationToken && !!invitationExpiry && invitationExpiry < new Date(),
+  }));
 }
 
 /**
@@ -369,11 +440,12 @@ export async function changeClientPortalPassword(
     throw new Error("Current password is incorrect");
   }
 
-  // Update password
+  // Update password and sign out every existing session.
   const newPasswordHash = await hashPassword(newPassword);
   await db.update(clientPortalUsers)
     .set({
       passwordHash: newPasswordHash,
+      tokenVersion: sql`${clientPortalUsers.tokenVersion} + 1`,
       updatedAt: new Date(),
     })
     .where(eq(clientPortalUsers.id, userId));
@@ -391,6 +463,8 @@ export async function deactivateClientPortalUser(userId: number) {
   await db.update(clientPortalUsers)
     .set({
       isActive: 0,
+      // Bump too, so a later reactivation doesn't revive tokens issued before deactivation.
+      tokenVersion: sql`${clientPortalUsers.tokenVersion} + 1`,
       updatedAt: new Date(),
     })
     .where(eq(clientPortalUsers.id, userId));

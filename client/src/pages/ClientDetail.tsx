@@ -194,7 +194,8 @@ export default function ClientDetail() {
       </div>
 
       <Tabs defaultValue="contact" className="space-y-6">
-        <TabsList className="bg-muted/30">
+        {/* Compact tabs so all ten fit one row on wide screens (the bar wraps on narrower ones). */}
+        <TabsList className="bg-muted/30 w-full justify-start [&>*]:gap-1.5 [&>*]:px-1.5">
           <TabsTrigger value="contact" className="gap-2">
             <User className="h-4 w-4" />
             Contact Info
@@ -719,6 +720,7 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
   const { data: portalUsers, refetch } = trpc.clientPortal.listUsers.useQuery({ clientId });
   const { data: client } = trpc.clients.getById.useQuery({ id: clientId });
   const createInvitationMutation = trpc.clientPortal.createInvitation.useMutation();
+  const resendInvitationMutation = trpc.clientPortal.resendInvitation.useMutation();
   const deactivateUserMutation = trpc.clientPortal.deactivateUser.useMutation();
   const createDirectLoginMutation = trpc.clientPortal.createDirectLogin.useMutation();
   const openAsClientMutation = trpc.clientPortal.openAsClient.useMutation();
@@ -787,13 +789,32 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
       });
 
       setLastInvitation(result);
-      toast.success(`Invitation sent to ${inviteEmail}`);
+      if (result.emailSent) {
+        toast.success(`Invitation emailed to ${inviteEmail}`);
+      } else {
+        toast.warning(`Invitation created, but the email didn't send (${result.emailError?.replace(/\.$/, "")}). Copy the link below and share it.`);
+      }
       setInviteEmail("");
       setInviteName("");
       setShowInviteDialog(false);
       refetch();
     } catch (error: any) {
       toast.error(error.message || "Failed to send invitation");
+    }
+  };
+
+  const handleResendInvitation = async (userId: number) => {
+    try {
+      const result = await resendInvitationMutation.mutateAsync({ userId });
+      setLastInvitation(result);
+      if (result.emailSent) {
+        toast.success(`Invitation re-sent to ${result.email}`);
+      } else {
+        toast.warning(`New invitation link created, but the email didn't send (${result.emailError?.replace(/\.$/, "")}). Copy the link below and share it.`);
+      }
+      refetch();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to resend invitation");
     }
   };
 
@@ -822,7 +843,7 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
       {/* Portal Overview */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <UserPlus className="h-5 w-5" />
@@ -832,7 +853,7 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
                 Invite {clientName} team members to access their content portal
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={handleOpenPortal} disabled={openAsClientMutation.isPending}>
                 <Eye className="h-4 w-4 mr-2" />
                 {openAsClientMutation.isPending ? "Opening…" : "Open Portal"}
@@ -854,7 +875,7 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
             {portalUrl ? (
               <>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-background px-3 py-2 rounded text-sm">
+                  <code className="flex-1 min-w-0 break-all bg-background px-3 py-2 rounded text-sm">
                     {portalUrl}
                   </code>
                   <Button
@@ -906,7 +927,7 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
             <div>
               <Label className="text-xs text-muted-foreground">Invitation Link</Label>
               <div className="flex items-center gap-2 mt-1">
-                <code className="flex-1 bg-muted px-3 py-2 rounded text-xs overflow-x-auto">
+                <code className="flex-1 min-w-0 break-all bg-muted px-3 py-2 rounded text-xs">
                   {window.location.origin}/portal/accept-invitation?token={lastInvitation.token}
                 </code>
                 <Button
@@ -918,7 +939,9 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                Share this link with the user to complete their registration
+                {lastInvitation.emailSent
+                  ? "We emailed this link to them. You can also share it directly."
+                  : "The email didn't go out — share this link with them directly."}
               </p>
             </div>
           </CardContent>
@@ -942,25 +965,41 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
               {portalUsers.map((user: any) => (
                 <div
                   key={user.id}
-                  className="flex items-center justify-between p-4 border rounded-lg"
+                  className="flex flex-wrap items-center justify-between gap-3 p-4 border rounded-lg"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                       <User className="h-5 w-5 text-primary" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium">{user.name}</p>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
+                      <p className="text-sm text-muted-foreground break-all">{user.email}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <Badge variant={user.role === "client_admin" ? "default" : "secondary"}>
                       {user.role === "client_admin" ? "Admin" : "Viewer"}
                     </Badge>
                     <Badge variant={user.isActive ? "default" : "secondary"}>
-                      {user.isActive ? "Active" : "Inactive"}
+                      {user.isActive
+                        ? "Active"
+                        : user.inviteExpired
+                          ? "Invite expired"
+                          : user.invitePending
+                            ? "Invite pending"
+                            : "Deactivated"}
                     </Badge>
-                    {user.isActive && (
+                    {user.invitePending && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleResendInvitation(user.id)}
+                        disabled={resendInvitationMutation.isPending}
+                      >
+                        Resend invite
+                      </Button>
+                    )}
+                    {user.isActive === 1 && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1027,7 +1066,7 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
                   onChange={(e) => setDirectRole(e.target.value as "client_admin" | "client_viewer")}
                 >
                   <option value="client_admin">Admin - Full portal access</option>
-                  <option value="client_viewer">Viewer - Can view and approve content</option>
+                  <option value="client_viewer">Viewer - Can view content and leave notes</option>
                 </select>
               </div>
               <div className="flex gap-2 pt-4">
@@ -1085,7 +1124,7 @@ function PortalAccessTab({ clientId, clientName }: { clientId: number; clientNam
                   value={inviteRole}
                   onChange={(e) => setInviteRole(e.target.value as "client_admin" | "client_viewer")}
                 >
-                  <option value="client_viewer">Viewer - Can view and approve content</option>
+                  <option value="client_viewer">Viewer - Can view content and leave notes</option>
                   <option value="client_admin">Admin - Full portal access</option>
                 </select>
               </div>

@@ -6,10 +6,10 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { LOGIN_PATH } from "./const";
-import { bootstrapPortalSessionFromUrl, clearPortalSession, getPortalToken } from "./lib/portalSession";
+import { bootstrapPortalSessionFromUrl, clearPortalSession, getPortalToken, portalLoginPath } from "./lib/portalSession";
 import "./index.css";
 
-// Seed this tab's portal session from a preview hash / legacy storage before anything renders.
+// Seed this tab's portal preview session from the URL hash before anything renders.
 bootstrapPortalSessionFromUrl();
 
 const queryClient = new QueryClient();
@@ -24,7 +24,7 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   // Portal pages have their own login and Bearer-token auth; keep them out of the agency flow.
   const onPortal = window.location.pathname.startsWith("/portal");
-  const target = onPortal ? "/portal/login" : LOGIN_PATH;
+  const target = onPortal ? portalLoginPath() : LOGIN_PATH;
 
   // Avoid redirect loop when already on the login page.
   if (window.location.pathname === target) return;

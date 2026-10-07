@@ -155,14 +155,14 @@ export default function Calendar() {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Content Calendar</h1>
           <p className="text-muted-foreground mt-2">
             Schedule and manage your content publication dates
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Select value={selectedClient} onValueChange={setSelectedClient}>
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="All Clients" />
@@ -185,12 +185,12 @@ export default function Calendar() {
 
       {/* Calendar Controls */}
       <Card className="p-6 mb-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Button variant="outline" size="icon" onClick={previousMonth}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <h2 className="text-xl font-semibold min-w-[200px] text-center">{monthName}</h2>
+            <h2 className="text-xl font-semibold sm:min-w-[200px] text-center">{monthName}</h2>
             <Button variant="outline" size="icon" onClick={nextMonth}>
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -214,7 +214,7 @@ export default function Calendar() {
 
       {/* Legend */}
       <Card className="p-4 mb-6">
-        <div className="flex items-center gap-6 text-sm">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           <span className="font-semibold">Status:</span>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded bg-gray-500"></div>

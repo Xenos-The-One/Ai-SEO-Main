@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { FEEDBACK_KIND_LABELS, clientReviewBadgeClass, clientReviewLabel } from "@/lib/portalReview";
 import { ArrowLeft, Save, Download, Loader2, Eye, Pencil, FileText, FileType, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
@@ -40,6 +42,13 @@ export default function ContentDetail() {
     { contentId },
     { enabled: contentId > 0 }
   );
+  const sendForReviewMutation = trpc.clientPortal.sendForReview.useMutation({
+    onSuccess: () => {
+      toast.success("Sent to the client's portal for review");
+      refetch();
+    },
+    onError: (error) => toast.error(error.message || "Failed to send for review"),
+  });
 
   const [title, setTitle] = useState("");
   const [contentText, setContentText] = useState("");
@@ -279,7 +288,7 @@ export default function ContentDetail() {
                       className="font-mono text-sm"
                     />
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button onClick={handleSave} disabled={updateMutation.isPending}>
                       {updateMutation.isPending ? (
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -373,9 +382,32 @@ export default function ContentDetail() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Client Feedback</CardTitle>
+              <CardTitle>Client Review</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Badge className={content.clientReview ? clientReviewBadgeClass(content.clientReview) : "bg-muted text-muted-foreground"}>
+                  {content.clientReview === "pending"
+                    ? "Awaiting client review"
+                    : content.clientReview
+                      ? clientReviewLabel(content.clientReview)
+                      : "Not shared with client"}
+                </Badge>
+                {content.clientReview !== "pending" && content.clientReview !== "approved" && (
+                  <Button
+                    size="sm"
+                    onClick={() => sendForReviewMutation.mutate({ contentId })}
+                    disabled={sendForReviewMutation.isPending}
+                  >
+                    {content.clientReview === "changes_requested" ? "Resend for review" : "Send to client"}
+                  </Button>
+                )}
+              </div>
+              {!content.clientReview && (
+                <p className="text-xs text-muted-foreground">
+                  The client can't see this piece in their portal until you send it.
+                </p>
+              )}
               {!clientFeedback || clientFeedback.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No client notes yet</p>
               ) : (
@@ -383,7 +415,14 @@ export default function ContentDetail() {
                   {clientFeedback.map((f: any) => (
                     <div key={f.id} className="rounded-lg border p-3">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium">{f.authorName || "Client"}</span>
+                        <span className="text-sm font-medium">
+                          {f.authorName || "Client"}
+                          {FEEDBACK_KIND_LABELS[f.kind] && (
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">
+                              · {FEEDBACK_KIND_LABELS[f.kind]}
+                            </span>
+                          )}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {new Date(f.createdAt).toLocaleDateString()}
                         </span>

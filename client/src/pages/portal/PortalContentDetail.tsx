@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { getPortalToken, getPortalUserRaw } from "@/lib/portalSession";
-import { ArrowLeft, CheckCircle, XCircle, Send } from "lucide-react";
+import { PortalShell, PortalError } from "@/components/portal/PortalShell";
+import { FEEDBACK_KIND_LABELS, clientReviewBadgeClass, clientReviewLabel } from "@/lib/portalReview";
+import { getPortalToken, getPortalUserRaw, portalLoginPath } from "@/lib/portalSession";
+import { CheckCircle, XCircle, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 
@@ -25,14 +27,14 @@ export default function PortalContentDetail() {
     const userData = getPortalUserRaw();
     
     if (!token || !userData) {
-      setLocation("/portal/login");
+      setLocation(portalLoginPath());
       return;
     }
     
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data: content, isLoading, refetch } = trpc.clientPortal.contentById.useQuery(
+  const { data: content, isLoading, error, refetch } = trpc.clientPortal.contentById.useQuery(
     { id: contentId },
     { enabled: contentId > 0 && !!user }
   );
@@ -62,11 +64,13 @@ export default function PortalContentDetail() {
     try {
       await approveMutation.mutateAsync({
         contentId,
+        comment: comment.trim() || undefined,
       });
       toast.success("Content approved successfully");
       setShowApprovalDialog(false);
       setComment("");
       refetch();
+      refetchFeedback();
     } catch (error: any) {
       toast.error(error.message || "Failed to approve content");
     }
@@ -81,12 +85,13 @@ export default function PortalContentDetail() {
     try {
       await requestRevisionMutation.mutateAsync({
         contentId,
-        reason: comment,
+        reason: comment.trim(),
       });
       toast.success("Revision requested successfully");
       setShowRevisionDialog(false);
       setComment("");
       refetch();
+      refetchFeedback();
     } catch (error: any) {
       toast.error(error.message || "Failed to request revision");
     }
@@ -104,9 +109,17 @@ export default function PortalContentDetail() {
     );
   }
 
+  if (error) {
+    return (
+      <PortalShell title="Content" back={{ href: "/portal/content", label: "All content" }}>
+        <PortalError onRetry={() => refetch()} />
+      </PortalShell>
+    );
+  }
+
   if (!content || content.clientId !== user.clientId) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <PortalShell title="Content" back={{ href: "/portal/content", label: "All content" }}>
         <Card className="p-8 text-center">
           <h2 className="text-xl font-semibold mb-2">Content not found</h2>
           <p className="text-muted-foreground mb-4">This content doesn't exist or you don't have access to it</p>
@@ -114,43 +127,23 @@ export default function PortalContentDetail() {
             <Button>Back to Content List</Button>
           </Link>
         </Card>
-      </div>
+      </PortalShell>
     );
   }
 
-  const canApprove = content.status === "draft" || content.status === "in_progress";
+  const canApprove = content.clientReview === "pending";
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link href="/portal/content">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back
-                </Button>
-              </Link>
-              <div>
-                <h1 className="text-2xl font-bold">{content.title}</h1>
-                <p className="text-sm text-muted-foreground">{content.topic}</p>
-              </div>
-            </div>
-            <Badge className={
-              content.status === "approved" ? "bg-green-500/10 text-green-500" :
-              content.status === "in_progress" ? "bg-blue-500/10 text-blue-500" :
-              "bg-yellow-500/10 text-yellow-500"
-            }>
-              {content.status.replace("_", " ")}
-            </Badge>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+    <PortalShell
+      title={content.title}
+      subtitle={content.topic !== content.title ? content.topic : undefined}
+      back={{ href: "/portal/content", label: "All content" }}
+      actions={
+        <Badge className={clientReviewBadgeClass(content.clientReview)}>
+          {clientReviewLabel(content.clientReview)}
+        </Badge>
+      }
+    >
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Content Preview */}
           <div className="lg:col-span-2 space-y-6">
@@ -229,7 +222,14 @@ export default function PortalContentDetail() {
                     feedback.map((f: any) => (
                       <div key={f.id} className="rounded-lg border p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium">{f.authorName || "Client"}</span>
+                          <span className="text-sm font-medium">
+                            {f.authorName || "Client"}
+                            {FEEDBACK_KIND_LABELS[f.kind] && (
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                · {FEEDBACK_KIND_LABELS[f.kind]}
+                              </span>
+                            )}
+                          </span>
                           <span className="text-xs text-muted-foreground">
                             {new Date(f.createdAt).toLocaleDateString()}
                           </span>
@@ -268,7 +268,6 @@ export default function PortalContentDetail() {
             </Card>
           </div>
         </div>
-      </main>
 
       {/* Approval Dialog */}
       {showApprovalDialog && (
@@ -357,6 +356,6 @@ export default function PortalContentDetail() {
           </Card>
         </div>
       )}
-    </div>
+    </PortalShell>
   );
 }

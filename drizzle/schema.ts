@@ -101,6 +101,8 @@ export const clientPortalUsers = pgTable("clientPortalUsers", {
   name: varchar("name", { length: 255 }).notNull(),
   role: text("role", { enum: ["client_admin", "client_viewer"] }).default("client_viewer").notNull(),
   isActive: integer("isActive").default(1).notNull(), // 0 = inactive, 1 = active
+  /** Bumped to revoke all outstanding portal tokens (deactivation, password change). */
+  tokenVersion: integer("tokenVersion").default(0).notNull(),
   invitationToken: varchar("invitationToken", { length: 255 }),
   invitationExpiry: timestamp("invitationExpiry"),
   lastLoginAt: timestamp("lastLoginAt"),
@@ -142,6 +144,7 @@ export const portalFeedback = pgTable("portalFeedback", {
   authorName: varchar("authorName", { length: 255 }),
   authorEmail: varchar("authorEmail", { length: 320 }),
   note: text("note").notNull(),
+  kind: varchar("kind", { length: 32, enum: ["note", "revision_request", "approval"] }).default("note").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -166,6 +169,8 @@ export const content = pgTable("content", {
 
   // Status and workflow
   status: text("status", { enum: ["draft", "in_progress", "approved"] }).default("draft").notNull(),
+  // Client-portal review state. NULL = not shared with the client yet (hidden from the portal).
+  clientReview: varchar("clientReview", { length: 32, enum: ["pending", "changes_requested", "approved"] }),
   progress: integer("progress").default(0).notNull(), // 0-100
   contentType: varchar("contentType", { length: 32 }).default("blog").notNull(), // blog | newsletter | social | landing | email
   

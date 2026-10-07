@@ -249,7 +249,7 @@ export default function KeywordResearch() {
                 />
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button onClick={handleAnalyze} disabled={analyzeMutation.isPending}>
                   {analyzeMutation.isPending ? "Analyzing..." : "Analyze Content"}
                 </Button>

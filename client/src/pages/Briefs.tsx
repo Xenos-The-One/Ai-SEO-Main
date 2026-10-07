@@ -129,7 +129,7 @@ export default function Briefs() {
       {/* Controls */}
       <Card className="mb-6">
         <CardContent className="pt-6">
-          <div className="flex items-end gap-4">
+          <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 max-w-sm">
               <label className="block text-sm font-medium mb-2">Filter by Client</label>
               <Select value={selectedClientId} onValueChange={setSelectedClientId}>

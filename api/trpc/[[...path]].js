@@ -177,6 +177,8 @@ var init_schema = __esm({
       role: text("role", { enum: ["client_admin", "client_viewer"] }).default("client_viewer").notNull(),
       isActive: integer("isActive").default(1).notNull(),
       // 0 = inactive, 1 = active
+      /** Bumped to revoke all outstanding portal tokens (deactivation, password change). */
+      tokenVersion: integer("tokenVersion").default(0).notNull(),
       invitationToken: varchar("invitationToken", { length: 255 }),
       invitationExpiry: timestamp("invitationExpiry"),
       lastLoginAt: timestamp("lastLoginAt"),
@@ -203,6 +205,7 @@ var init_schema = __esm({
       authorName: varchar("authorName", { length: 255 }),
       authorEmail: varchar("authorEmail", { length: 320 }),
       note: text("note").notNull(),
+      kind: varchar("kind", { length: 32, enum: ["note", "revision_request", "approval"] }).default("note").notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull()
     });
     content = pgTable("content", {
@@ -219,6 +222,8 @@ var init_schema = __esm({
       // live URL, used to match Google Analytics page paths
       // Status and workflow
       status: text("status", { enum: ["draft", "in_progress", "approved"] }).default("draft").notNull(),
+      // Client-portal review state. NULL = not shared with the client yet (hidden from the portal).
+      clientReview: varchar("clientReview", { length: 32, enum: ["pending", "changes_requested", "approved"] }),
       progress: integer("progress").default(0).notNull(),
       // 0-100
       contentType: varchar("contentType", { length: 32 }).default("blog").notNull(),
@@ -661,6 +666,8 @@ var init_env = __esm({
       zernioApiKey: clean(process.env.ZERNIO_API_KEY),
       resendApiKey: clean(process.env.RESEND_API_KEY),
       newsletterFrom: process.env.NEWSLETTER_FROM ?? "onboarding@resend.dev",
+      // Sender for client-portal invitation emails; falls back to the newsletter sender.
+      portalInviteFrom: process.env.PORTAL_INVITE_FROM || process.env.NEWSLETTER_FROM || "onboarding@resend.dev",
       openaiApiKey: clean(process.env.OPENAI_API_KEY),
       perplexityApiKey: clean(process.env.PERPLEXITY_API_KEY),
       // Run the weekly rank-tracking cron in this process. On by default in production;
@@ -1550,6 +1557,21 @@ var init_llm = __esm({
   }
 });
 
+// server/_core/passwordTiming.ts
+import bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
+async function burnPasswordCheck(password) {
+  dummyHash ??= bcrypt.hash(randomBytes(16).toString("hex"), 10);
+  await bcrypt.compare(password, await dummyHash);
+}
+var dummyHash;
+var init_passwordTiming = __esm({
+  "server/_core/passwordTiming.ts"() {
+    "use strict";
+    dummyHash = null;
+  }
+});
+
 // server/budgetTracking.ts
 var budgetTracking_exports = {};
 __export(budgetTracking_exports, {
@@ -1563,7 +1585,7 @@ __export(budgetTracking_exports, {
   sendBudgetAlert: () => sendBudgetAlert
 });
 import { eq as eq3, and as and2, gte } from "drizzle-orm";
-import { TRPCError as TRPCError4 } from "@trpc/server";
+import { TRPCError as TRPCError5 } from "@trpc/server";
 function calculateContentCost(aiModel, inputTokens, outputTokens) {
   const costs = MODEL_COSTS[aiModel] || { input: 0, output: 0 };
   return inputTokens / 1e6 * costs.input + outputTokens / 1e6 * costs.output;
@@ -1635,7 +1657,7 @@ async function assertClientWithinBudget(clientId) {
   if (!(budget > 0)) return;
   const currentCost = await getClientMonthlyCost(clientId);
   if (currentCost >= budget) {
-    throw new TRPCError4({
+    throw new TRPCError5({
       code: "FORBIDDEN",
       message: `Monthly budget reached for this client ($${currentCost.toFixed(2)} of $${budget.toFixed(2)}). Raise the client's monthly budget to continue.`
     });
@@ -2542,7 +2564,8 @@ async function checkKeywordRank(keyword, domain, opts = {}) {
       keyword,
       location_name: opts.locationName ?? "United States",
       language_name: opts.languageName ?? "English",
-      device: opts.device ?? "desktop"
+      device: opts.device ?? "desktop",
+      depth: opts.depth ?? 100
     }
   ]);
   const items = json?.tasks?.[0]?.result?.[0]?.items ?? [];
@@ -2551,7 +2574,7 @@ async function checkKeywordRank(keyword, domain, opts = {}) {
     const itemDomain = normalizeDomain(item?.domain ?? item?.url ?? "");
     if (itemDomain === target) {
       return {
-        position: item?.rank_absolute ?? null,
+        position: item?.rank_group ?? item?.rank_absolute ?? null,
         url: item?.url ?? null
       };
     }
@@ -2785,6 +2808,642 @@ var init_siteAudit = __esm({
   }
 });
 
+// server/clientPortalData.ts
+var clientPortalData_exports = {};
+__export(clientPortalData_exports, {
+  addPortalFeedback: () => addPortalFeedback,
+  getFeedbackForContent: () => getFeedbackForContent,
+  getPortalBranding: () => getPortalBranding2,
+  getPortalContentAnalytics: () => getPortalContentAnalytics,
+  getPortalContentById: () => getPortalContentById,
+  getPortalContentList: () => getPortalContentList,
+  getPortalFeedback: () => getPortalFeedback,
+  getPortalMe: () => getPortalMe,
+  getPortalPerformance: () => getPortalPerformance,
+  getPortalServicePlan: () => getPortalServicePlan,
+  getPortalStats: () => getPortalStats,
+  intentLabel: () => intentLabel,
+  portalApproveContent: () => portalApproveContent,
+  portalRequestRevision: () => portalRequestRevision,
+  providerLabel: () => providerLabel,
+  sendContentForClientReview: () => sendContentForClientReview
+});
+import { and as and13, asc as asc3, desc as desc9, eq as eq18, gte as gte3, inArray as inArray3, isNotNull, isNull, or, sql as sql4 } from "drizzle-orm";
+async function db5() {
+  const d = await getDb();
+  if (!d) throw new Error("Database not available");
+  return d;
+}
+function providerLabel(provider) {
+  return PROVIDER_LABELS[provider] ?? provider;
+}
+function intentLabel(intent) {
+  if (!intent) return null;
+  const parts = intent.split(/[,\s/]+/).map((p) => p.trim().toLowerCase()).filter(Boolean);
+  if (!parts.length) return null;
+  const labels = parts.map((p) => INTENT_LABELS[p] ?? p.charAt(0).toUpperCase() + p.slice(1));
+  return Array.from(new Set(labels)).join(" / ");
+}
+async function getPortalMe(clientId, role, email) {
+  const d = await db5();
+  const [client] = await d.select({ id: clients.id, name: clients.name, company: clients.company }).from(clients).where(eq18(clients.id, clientId)).limit(1);
+  return {
+    clientId,
+    role,
+    email,
+    clientName: client?.name ?? "",
+    clientCompany: client?.company ?? ""
+  };
+}
+async function getPortalBranding2(clientId) {
+  const d = await db5();
+  const [row] = await d.select().from(portalBranding).where(eq18(portalBranding.clientId, clientId)).limit(1);
+  return row ?? null;
+}
+function sharedWithClient(clientId) {
+  return and13(eq18(content.clientId, clientId), isNotNull(content.clientReview));
+}
+async function getPortalContentList(clientId) {
+  const d = await db5();
+  return d.select(portalContentColumns).from(content).where(sharedWithClient(clientId)).orderBy(desc9(content.createdAt));
+}
+async function getPortalContentById(clientId, id) {
+  const d = await db5();
+  const [row] = await d.select(portalContentColumns).from(content).where(and13(eq18(content.id, id), sharedWithClient(clientId))).limit(1);
+  return row ?? null;
+}
+async function getPortalStats(clientId) {
+  const rows = await getPortalContentList(clientId);
+  return {
+    totalContent: rows.length,
+    pendingApproval: rows.filter((r) => r.clientReview === "pending").length,
+    approved: rows.filter((r) => r.clientReview === "approved").length,
+    recent: rows.slice(0, 5).map((r) => ({
+      id: r.id,
+      title: r.title,
+      clientReview: r.clientReview,
+      createdAt: r.createdAt
+    }))
+  };
+}
+async function portalApproveContent(clientId, actor, contentId, comment) {
+  const d = await db5();
+  const existing = await getPortalContentById(clientId, contentId);
+  if (!existing || existing.clientReview !== "pending") return false;
+  await d.update(content).set({ status: "approved", clientReview: "approved", wasApproved: 1, approvedAt: /* @__PURE__ */ new Date(), progress: 100 }).where(and13(eq18(content.id, contentId), eq18(content.clientId, clientId)));
+  await insertFeedback(clientId, actor, contentId, comment?.trim() || "Approved", "approval");
+  return true;
+}
+async function portalRequestRevision(clientId, actor, contentId, reason) {
+  const d = await db5();
+  const existing = await getPortalContentById(clientId, contentId);
+  if (!existing || existing.clientReview !== "pending") return false;
+  await d.update(content).set({ status: "in_progress", clientReview: "changes_requested", wasApproved: 0, approvedAt: null }).where(and13(eq18(content.id, contentId), eq18(content.clientId, clientId)));
+  await insertFeedback(clientId, actor, contentId, reason, "revision_request");
+  return true;
+}
+async function sendContentForClientReview(contentId) {
+  const d = await db5();
+  await d.update(content).set({ clientReview: "pending" }).where(eq18(content.id, contentId));
+}
+async function getPortalFeedback(clientId, contentId) {
+  const d = await db5();
+  const owned = await getPortalContentById(clientId, contentId);
+  if (!owned) return [];
+  return d.select().from(portalFeedback).where(and13(eq18(portalFeedback.contentId, contentId), eq18(portalFeedback.clientId, clientId))).orderBy(desc9(portalFeedback.createdAt));
+}
+async function getFeedbackForContent(contentId) {
+  const d = await db5();
+  return d.select().from(portalFeedback).where(eq18(portalFeedback.contentId, contentId)).orderBy(desc9(portalFeedback.createdAt));
+}
+async function addPortalFeedback(clientId, userId, email, contentId, note) {
+  const owned = await getPortalContentById(clientId, contentId);
+  if (!owned) return null;
+  return insertFeedback(clientId, { userId, email }, contentId, note, "note");
+}
+async function insertFeedback(clientId, actor, contentId, note, kind) {
+  const d = await db5();
+  let authorName = "Client";
+  if (actor.userId > 0) {
+    const [u] = await d.select({ name: clientPortalUsers.name }).from(clientPortalUsers).where(eq18(clientPortalUsers.id, actor.userId)).limit(1);
+    if (u?.name) authorName = u.name;
+  } else {
+    authorName = "Agency (preview)";
+  }
+  const [row] = await d.insert(portalFeedback).values({ contentId, clientId, authorName, authorEmail: actor.email, note, kind }).returning();
+  return row;
+}
+async function findClientBrandId(clientId) {
+  const d = await db5();
+  const [client] = await d.select({ createdBy: clients.createdBy, websiteUrl: clients.websiteUrl, businessWebsite: clients.businessWebsite }).from(clients).where(eq18(clients.id, clientId)).limit(1);
+  if (!client) return null;
+  const domainSource = client.websiteUrl || client.businessWebsite || "";
+  if (!domainSource) return null;
+  const clientDomain2 = normalizeDomain(domainSource);
+  const brands = await d.select({ id: aiBrands.id, domain: aiBrands.domain }).from(aiBrands).where(eq18(aiBrands.createdBy, client.createdBy));
+  const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain2);
+  return match?.id ?? null;
+}
+async function getPortalContentAnalytics(clientId) {
+  const d = await db5();
+  const rows = await d.select({
+    id: content.id,
+    title: content.title,
+    contentType: content.contentType,
+    status: content.status,
+    createdAt: content.createdAt
+  }).from(content).where(sharedWithClient(clientId));
+  const empty = {
+    hasData: false,
+    totalPieces: rows.length,
+    totalViews: 0,
+    avgEngagement: 0,
+    aiCitationsEarned: 0,
+    byType: [],
+    viewsOverTime: [],
+    types: [],
+    library: []
+  };
+  let aiCitationsEarned = 0;
+  const brandId = await findClientBrandId(clientId);
+  if (brandId != null) {
+    const [m] = await d.select({ n: sql4`count(*)` }).from(aiVisibilityResults).where(and13(eq18(aiVisibilityResults.brandId, brandId), eq18(aiVisibilityResults.mentioned, 1)));
+    aiCitationsEarned = Number(m?.n ?? 0);
+  }
+  empty.aiCitationsEarned = aiCitationsEarned;
+  if (rows.length === 0) return empty;
+  const ids = rows.map((r) => r.id);
+  const analytics = await d.select().from(contentAnalytics).where(inArray3(contentAnalytics.contentId, ids)).orderBy(desc9(contentAnalytics.recordedAt));
+  if (analytics.length === 0) return empty;
+  const latest = /* @__PURE__ */ new Map();
+  for (const a of analytics) if (!latest.has(a.contentId)) latest.set(a.contentId, a);
+  let totalViews = 0;
+  let engSum = 0;
+  let engCount = 0;
+  const byType = /* @__PURE__ */ new Map();
+  const library = rows.map((r) => {
+    const a = latest.get(r.id);
+    const views = a?.views ?? 0;
+    const engagement = a?.engagementRate ?? 0;
+    const conversions = a?.conversions ?? 0;
+    totalViews += views;
+    if (a) {
+      engSum += engagement;
+      engCount += 1;
+      const t2 = byType.get(r.contentType) ?? { views: 0, engSum: 0, count: 0 };
+      t2.views += views;
+      t2.engSum += engagement;
+      t2.count += 1;
+      byType.set(r.contentType, t2);
+    }
+    return {
+      id: r.id,
+      title: r.title,
+      type: r.contentType,
+      status: r.status,
+      publishedAt: r.createdAt,
+      views,
+      engagement,
+      conversions
+    };
+  });
+  library.sort((a, b) => b.views - a.views);
+  const typeById = new Map(rows.map((r) => [r.id, r.contentType]));
+  const typesPresent = Array.from(new Set(rows.map((r) => r.contentType)));
+  const monthMap = /* @__PURE__ */ new Map();
+  for (const a of analytics) {
+    const dt = new Date(a.recordedAt);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, "0")}`;
+    const label = dt.toLocaleString("en-US", { month: "short" });
+    const type = typeById.get(a.contentId) ?? "other";
+    const entry = monthMap.get(key) ?? { sort: dt.getTime(), row: { label } };
+    entry.row[type] = (entry.row[type] ?? 0) + a.views;
+    monthMap.set(key, entry);
+  }
+  const viewsOverTime = Array.from(monthMap.values()).sort((a, b) => a.sort - b.sort).map((e) => e.row);
+  return {
+    hasData: true,
+    totalPieces: rows.length,
+    totalViews,
+    avgEngagement: engCount > 0 ? Math.round(engSum / engCount * 10) / 10 : 0,
+    aiCitationsEarned,
+    byType: Array.from(byType.entries()).map(([type, t2]) => ({
+      type,
+      views: t2.views,
+      engagement: t2.count > 0 ? Math.round(t2.engSum / t2.count * 10) / 10 : 0
+    })),
+    viewsOverTime,
+    types: typesPresent,
+    library
+  };
+}
+function startOfCurrentMonth() {
+  const now = /* @__PURE__ */ new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+function currentMonthLabel() {
+  return (/* @__PURE__ */ new Date()).toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+async function getPortalServicePlan(clientId) {
+  const d = await db5();
+  const [client] = await d.select({ servicePlan: clients.servicePlan }).from(clients).where(eq18(clients.id, clientId)).limit(1);
+  let items = [];
+  try {
+    items = client?.servicePlan ? JSON.parse(client.servicePlan) : [];
+  } catch {
+    items = [];
+  }
+  if (!items.length) return { hasPlan: false, monthLabel: currentMonthLabel(), items: [] };
+  const counts = /* @__PURE__ */ new Map();
+  const needsContentCounts = items.some(
+    (i) => i.type === "quota" && typeof i.source === "string" && i.source.startsWith("content:")
+  );
+  if (needsContentCounts) {
+    const rows = await d.select({ type: content.contentType, n: sql4`count(*)` }).from(content).where(
+      and13(
+        eq18(content.clientId, clientId),
+        eq18(content.clientReview, "approved"),
+        or(
+          gte3(content.approvedAt, startOfCurrentMonth()),
+          and13(isNull(content.approvedAt), gte3(content.createdAt, startOfCurrentMonth()))
+        )
+      )
+    ).groupBy(content.contentType);
+    for (const r of rows) counts.set(r.type, Number(r.n));
+  }
+  const enriched = items.map((i) => {
+    if (i.type === "quota") {
+      let delivered = i.delivered ?? 0;
+      if (typeof i.source === "string" && i.source.startsWith("content:")) {
+        delivered = counts.get(i.source.split(":")[1]) ?? 0;
+      }
+      return { ...i, delivered };
+    }
+    return i;
+  });
+  return { hasPlan: true, monthLabel: currentMonthLabel(), items: enriched };
+}
+function parseSeoOverview(raw) {
+  if (!raw) return { domainOverview: null, siteAudit: null, backlinks: null };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      domainOverview: parsed.domainOverview ?? null,
+      siteAudit: parsed.siteAudit ?? null,
+      backlinks: parsed.backlinks ?? null
+    };
+  } catch {
+    return { domainOverview: null, siteAudit: null, backlinks: null };
+  }
+}
+async function getPortalPerformance(clientId) {
+  const d = await db5();
+  const [client] = await d.select().from(clients).where(eq18(clients.id, clientId)).limit(1);
+  if (!client) throw new Error("Client not found");
+  const onboardedAt = client.createdAt;
+  const monthsActive = Math.max(
+    0,
+    Math.round((Date.now() - new Date(onboardedAt).getTime()) / (30 * 24 * 60 * 60 * 1e3))
+  );
+  const locationParts = [client.city, client.state].filter(Boolean);
+  const profile = {
+    name: client.businessName || client.name,
+    location: locationParts.join(", "),
+    industry: client.industry || client.businessType || "",
+    onboardedAt,
+    monthsActive
+  };
+  const brandId = await findClientBrandId(clientId);
+  let aiVisibility = emptyAiVisibility();
+  if (brandId != null) {
+    aiVisibility = await buildAiVisibility(brandId, profile.name);
+  }
+  const keywords = await buildKeywordRankings(clientId);
+  const seo = parseSeoOverview(client.seoOverview);
+  return {
+    profile,
+    domainOverview: seo.domainOverview,
+    siteAudit: seo.siteAudit,
+    backlinks: seo.backlinks,
+    hasSeoData: !!(seo.domainOverview || seo.siteAudit || seo.backlinks),
+    hasAiData: aiVisibility.hasAiData,
+    hasKeywordData: keywords.length > 0,
+    visibilityScore: aiVisibility.visibilityScore,
+    weightedScore: aiVisibility.weightedScore,
+    bestRank: aiVisibility.bestRank,
+    topEngine: aiVisibility.topEngine,
+    // "verified" only when the brand was actually cited by an engine, not merely scanned.
+    citationStatus: aiVisibility.citations.length > 0 ? "verified" : "none",
+    engines: aiVisibility.engines,
+    rankProgression: aiVisibility.rankProgression,
+    startVsCurrent: aiVisibility.startVsCurrent,
+    citations: aiVisibility.citations,
+    shareOfVoice: aiVisibility.shareOfVoice,
+    radar: aiVisibility.radar,
+    estMonthlyVisits: aiVisibility.estMonthlyVisits,
+    visitsDeltaPct: aiVisibility.visitsDeltaPct,
+    referralTraffic: aiVisibility.referralTraffic,
+    competitors: aiVisibility.competitors,
+    competitorRank: aiVisibility.competitorRank,
+    milestones: aiVisibility.milestones,
+    milestonesHit: aiVisibility.milestonesHit,
+    keywords
+  };
+}
+function emptyAiVisibility() {
+  return {
+    hasAiData: false,
+    visibilityScore: null,
+    weightedScore: null,
+    bestRank: null,
+    topEngine: null,
+    engines: [],
+    rankProgression: [],
+    startVsCurrent: [],
+    citations: [],
+    shareOfVoice: [],
+    radar: [],
+    estMonthlyVisits: null,
+    visitsDeltaPct: null,
+    referralTraffic: [],
+    competitors: [],
+    competitorRank: null,
+    milestones: [],
+    milestonesHit: { done: 0, total: 0 }
+  };
+}
+async function buildAiVisibility(brandId, clientName) {
+  const d = await db5();
+  const [brand] = await d.select({ competitors: aiBrands.competitors }).from(aiBrands).where(eq18(aiBrands.id, brandId)).limit(1);
+  const rows = await d.select({
+    scanId: aiVisibilityResults.scanId,
+    provider: aiVisibilityResults.provider,
+    mentioned: aiVisibilityResults.mentioned,
+    position: aiVisibilityResults.position,
+    sentiment: aiVisibilityResults.sentiment,
+    competitorsMentioned: aiVisibilityResults.competitorsMentioned,
+    summary: aiVisibilityResults.summary,
+    answerExcerpt: aiVisibilityResults.answerExcerpt,
+    prompt: aiPrompts.prompt,
+    createdAt: aiVisibilityResults.createdAt
+  }).from(aiVisibilityResults).leftJoin(aiPrompts, eq18(aiVisibilityResults.promptId, aiPrompts.id)).where(eq18(aiVisibilityResults.brandId, brandId)).orderBy(asc3(aiVisibilityResults.createdAt));
+  if (rows.length === 0) return emptyAiVisibility();
+  const scanOrder = [];
+  for (const r of rows) if (!scanOrder.includes(r.scanId)) scanOrder.push(r.scanId);
+  const firstScan = scanOrder[0];
+  const lastScan = scanOrder[scanOrder.length - 1];
+  const providers = Array.from(new Set(rows.map((r) => r.provider)));
+  const bestRankIn = (scanId, provider) => {
+    const positions = rows.filter((r) => r.scanId === scanId && r.provider === provider && r.position != null).map((r) => r.position);
+    return positions.length ? Math.min(...positions) : null;
+  };
+  const engines = providers.map((provider) => {
+    const currentRank = bestRankIn(lastScan, provider);
+    const startRank = bestRankIn(firstScan, provider);
+    const delta = currentRank != null && startRank != null ? startRank - currentRank : null;
+    let status = "Holding";
+    if (delta != null && delta > 0) status = `\u2191 ${delta} position${delta > 1 ? "s" : ""}`;
+    else if (delta != null && delta < 0) status = `\u2193 ${Math.abs(delta)}`;
+    return { provider, label: providerLabel(provider), currentRank, startRank, delta, status };
+  });
+  const latestRows = rows.filter((r) => r.scanId === lastScan);
+  const mentioned = latestRows.filter((r) => r.mentioned).length;
+  const visibilityScore = latestRows.length ? Math.round(mentioned / latestRows.length * 100) : 0;
+  const rankedEngines = engines.filter((e) => e.currentRank != null);
+  const bestRank = rankedEngines.length ? Math.min(...rankedEngines.map((e) => e.currentRank)) : null;
+  const topEngine = rankedEngines.length ? rankedEngines.reduce(
+    (a, b) => a.currentRank <= b.currentRank ? a : b
+  ).label : null;
+  const rankProgression = scanOrder.map((scanId, i) => {
+    const row = { label: `M${i + 1}` };
+    for (const p of providers) row[p] = bestRankIn(scanId, p);
+    return row;
+  });
+  const startVsCurrent = engines.map((e) => ({
+    provider: e.provider,
+    label: e.label,
+    start: e.startRank,
+    current: e.currentRank
+  }));
+  const citations = [];
+  for (const provider of providers) {
+    const best = latestRows.filter((r) => r.provider === provider && r.mentioned).sort((a, b) => (a.position ?? 999) - (b.position ?? 999))[0];
+    if (best) {
+      citations.push({
+        provider,
+        label: providerLabel(provider),
+        prompt: best.prompt ?? "",
+        excerpt: best.summary || best.answerExcerpt || "",
+        position: best.position,
+        mentioned: true
+      });
+    }
+  }
+  const mentionsByProvider = providers.map((p) => ({
+    provider: p,
+    label: providerLabel(p),
+    mentions: latestRows.filter((r) => r.provider === p && r.mentioned).length
+  }));
+  const totalMentions = mentionsByProvider.reduce((s, x) => s + x.mentions, 0);
+  const shareOfVoice = mentionsByProvider.map((x) => ({
+    ...x,
+    pct: totalMentions > 0 ? Math.round(x.mentions / totalMentions * 100) : 0
+  }));
+  const radar = providers.map((p) => {
+    const pr = latestRows.filter((r) => r.provider === p);
+    const rate = pr.length ? Math.round(pr.filter((r) => r.mentioned).length / pr.length * 100) : 0;
+    return { dimension: providerLabel(p), value: rate };
+  });
+  const mentionedLatest = latestRows.filter((r) => r.mentioned);
+  const citationTrust = mentionedLatest.length ? Math.round(mentionedLatest.filter((r) => r.sentiment === "positive").length / mentionedLatest.length * 100) : 0;
+  const firstRows = rows.filter((r) => r.scanId === firstScan);
+  const firstRate = firstRows.length ? firstRows.filter((r) => r.mentioned).length / firstRows.length * 100 : 0;
+  const momentum = Math.max(0, Math.min(100, Math.round(50 + (visibilityScore - firstRate))));
+  radar.push({ dimension: "Citation Trust", value: citationTrust });
+  radar.push({ dimension: "Momentum", value: momentum });
+  const posRows = mentionedLatest.filter((r) => r.position != null);
+  const posQuality = posRows.length ? posRows.reduce((s, r) => s + Math.max(0, 1 - (r.position - 1) / 10), 0) / posRows.length : 0;
+  const weightedScore = Math.round(visibilityScore * 0.6 + posQuality * 100 * 0.4);
+  const referralTraffic = scanOrder.map((scanId, i) => {
+    const row = { label: `M${i + 1}` };
+    for (const p of providers) {
+      row[p] = rows.filter((r) => r.scanId === scanId && r.provider === p && r.mentioned).length * VISITS_PER_MENTION;
+    }
+    return row;
+  });
+  const estMonthlyVisits = totalMentions * VISITS_PER_MENTION;
+  const firstVisits = firstRows.filter((r) => r.mentioned).length * VISITS_PER_MENTION;
+  const visitsDeltaPct = firstVisits > 0 ? Math.round((estMonthlyVisits - firstVisits) / firstVisits * 100) : null;
+  let competitorNames = [];
+  try {
+    competitorNames = brand?.competitors ? JSON.parse(brand.competitors) : [];
+  } catch {
+    competitorNames = [];
+  }
+  const compCounts = new Map(competitorNames.map((n) => [n, 0]));
+  for (const r of latestRows) {
+    if (!r.competitorsMentioned) continue;
+    let arr = [];
+    try {
+      arr = JSON.parse(r.competitorsMentioned);
+    } catch {
+      arr = [];
+    }
+    for (const nm of arr) if (compCounts.has(nm)) compCounts.set(nm, (compCounts.get(nm) ?? 0) + 1);
+  }
+  const compEntries = [
+    { name: clientName, isYou: true, score: totalMentions },
+    ...competitorNames.map((n) => ({ name: n, isYou: false, score: compCounts.get(n) ?? 0 }))
+  ].sort((a, b) => b.score - a.score);
+  const competitors = compEntries.map((e, i) => ({ ...e, rank: i + 1 }));
+  const youRank = competitors.find((c) => c.isYou)?.rank ?? null;
+  const competitorRank = youRank != null ? { rank: youRank, total: competitors.length } : null;
+  const rankedEver = rows.filter((r) => r.position != null).map((r) => r.position);
+  const bestEver = rankedEver.length ? Math.min(...rankedEver) : null;
+  const everMentioned = rows.some((r) => r.mentioned);
+  const multiEngine = providers.filter((p) => latestRows.some((r) => r.provider === p && r.mentioned)).length >= 2;
+  const milestones = [
+    { label: "Onboarded to AI Knowledge Graph", month: 1, done: true },
+    { label: "First AI citation detected", month: 2, done: everMentioned },
+    { label: "Reached Top 10", month: 3, done: bestEver != null && bestEver <= 10 },
+    { label: "Reached Top 3", month: 4, done: bestEver != null && bestEver <= 3 },
+    { label: "Multi-engine coverage", month: 5, done: multiEngine },
+    { label: "#1 Position secured", month: 6, done: bestEver === 1 }
+  ];
+  const milestonesHit = { done: milestones.filter((m) => m.done).length, total: milestones.length };
+  return {
+    hasAiData: true,
+    visibilityScore,
+    weightedScore,
+    bestRank,
+    topEngine,
+    engines,
+    rankProgression,
+    startVsCurrent,
+    citations,
+    shareOfVoice,
+    radar,
+    estMonthlyVisits,
+    visitsDeltaPct,
+    referralTraffic,
+    competitors,
+    competitorRank,
+    milestones,
+    milestonesHit
+  };
+}
+async function buildKeywordRankings(clientId) {
+  const d = await db5();
+  const keywords = await d.select().from(trackedKeywords).where(and13(eq18(trackedKeywords.clientId, clientId), eq18(trackedKeywords.isActive, 1)));
+  if (keywords.length === 0) return [];
+  const ids = keywords.map((k) => k.id);
+  const snaps = await d.select().from(rankSnapshots).where(inArray3(rankSnapshots.keywordId, ids)).orderBy(desc9(rankSnapshots.checkedAt));
+  return keywords.map((k) => {
+    const history = snaps.filter((s) => s.keywordId === k.id);
+    const current = history[0]?.position ?? null;
+    const prev = history[1]?.position ?? null;
+    let status = "New";
+    if (prev != null && current != null) {
+      if (current < prev) status = "Rising";
+      else if (current > prev) status = "Falling";
+      else status = "Stable";
+    } else if (current != null && prev == null && history.length > 1) {
+      status = "Stable";
+    }
+    return {
+      keyword: k.keyword,
+      location: k.locationName,
+      position: current,
+      prev,
+      status,
+      volume: k.searchVolume ?? null,
+      intent: intentLabel(k.intent)
+    };
+  });
+}
+var PROVIDER_LABELS, INTENT_LABELS, portalContentColumns, VISITS_PER_MENTION;
+var init_clientPortalData = __esm({
+  "server/clientPortalData.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_dataforseo();
+    PROVIDER_LABELS = {
+      openai: "ChatGPT",
+      claude: "Claude",
+      gemini: "Google Gemini",
+      perplexity: "Perplexity"
+    };
+    INTENT_LABELS = {
+      i: "Informational",
+      n: "Navigational",
+      c: "Commercial",
+      t: "Transactional"
+    };
+    portalContentColumns = {
+      id: content.id,
+      clientId: content.clientId,
+      title: content.title,
+      topic: content.topic,
+      content: content.content,
+      imageUrl: content.imageUrl,
+      contentType: content.contentType,
+      clientReview: content.clientReview,
+      scheduledPublishDate: content.scheduledPublishDate,
+      publishedUrl: content.publishedUrl,
+      wordCount: content.wordCount,
+      approvedAt: content.approvedAt,
+      createdAt: content.createdAt,
+      updatedAt: content.updatedAt
+    };
+    VISITS_PER_MENTION = 30;
+  }
+});
+
+// server/lib/portalInvite.ts
+var portalInvite_exports = {};
+__export(portalInvite_exports, {
+  sendPortalInviteEmail: () => sendPortalInviteEmail
+});
+async function sendPortalInviteEmail(input) {
+  if (!ENV.resendApiKey) return { sent: false, reason: "Email sending isn't configured (RESEND_API_KEY)." };
+  const name = escapeHtml(input.name);
+  const portal = escapeHtml(input.portalName);
+  const link = escapeHtml(input.link);
+  const expires = input.expiresAt.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  try {
+    const response = await fetch(RESEND_URL2, {
+      method: "POST",
+      headers: { authorization: `Bearer ${ENV.resendApiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        from: ENV.portalInviteFrom,
+        to: [input.to],
+        subject: `You're invited to ${input.portalName}`,
+        html: `<p>Hi ${name},</p>
+<p>You've been invited to <strong>${portal}</strong>, where you can review content and see your performance reports.</p>
+<p><a href="${link}">Set your password and sign in</a></p>
+<p>This link expires on ${expires}. If it has expired, ask your account manager to resend it.</p>`
+      })
+    });
+    if (!response.ok) {
+      const json = await response.json().catch(() => ({}));
+      return { sent: false, reason: json?.message || `Email provider returned ${response.status}` };
+    }
+    return { sent: true };
+  } catch (error) {
+    return { sent: false, reason: error?.message || "Email request failed" };
+  }
+}
+var RESEND_URL2, escapeHtml;
+var init_portalInvite = __esm({
+  "server/lib/portalInvite.ts"() {
+    "use strict";
+    init_env();
+    RESEND_URL2 = "https://api.resend.com/emails";
+    escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+});
+
 // server/modelPerformance.ts
 var modelPerformance_exports = {};
 __export(modelPerformance_exports, {
@@ -2792,7 +3451,7 @@ __export(modelPerformance_exports, {
   compareModels: () => compareModels,
   getModelPerformanceMetrics: () => getModelPerformanceMetrics
 });
-import { eq as eq18 } from "drizzle-orm";
+import { eq as eq19 } from "drizzle-orm";
 function calculateWordCount(text2) {
   return text2.trim().split(/\s+/).filter((word) => word.length > 0).length;
 }
@@ -2800,7 +3459,7 @@ async function getModelPerformanceMetrics(userId) {
   const db6 = await getDb();
   if (!db6) return [];
   const admin = await isAgencyAdmin(userId);
-  const allContent = await db6.select().from(content).where(admin ? void 0 : eq18(content.createdBy, userId));
+  const allContent = await db6.select().from(content).where(admin ? void 0 : eq19(content.createdBy, userId));
   const modelGroups = /* @__PURE__ */ new Map();
   for (const item of allContent) {
     const model = item.aiModel;
@@ -2969,11 +3628,11 @@ __export(performanceTracking_exports, {
   trackContentView: () => trackContentView,
   updatePerformanceMetrics: () => updatePerformanceMetrics
 });
-import { eq as eq19, desc as desc9, and as and14, gte as gte4 } from "drizzle-orm";
+import { eq as eq20, desc as desc10, and as and15, gte as gte5 } from "drizzle-orm";
 async function updatePerformanceMetrics(metrics) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const existing = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, metrics.contentId)).limit(1);
+  const existing = await db6.select().from(contentAnalytics).where(eq20(contentAnalytics.contentId, metrics.contentId)).limit(1);
   if (existing.length > 0) {
     await db6.update(contentAnalytics).set({
       views: metrics.views,
@@ -2981,7 +3640,7 @@ async function updatePerformanceMetrics(metrics) {
       shares: existing[0].shares,
       // Preserve existing shares
       recordedAt: /* @__PURE__ */ new Date()
-    }).where(eq19(contentAnalytics.contentId, metrics.contentId));
+    }).where(eq20(contentAnalytics.contentId, metrics.contentId));
   } else {
     await db6.insert(contentAnalytics).values({
       contentId: metrics.contentId,
@@ -2999,7 +3658,7 @@ async function updatePerformanceMetrics(metrics) {
 async function getContentPerformance(contentId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [analytics] = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, contentId)).limit(1);
+  const [analytics] = await db6.select().from(contentAnalytics).where(eq20(contentAnalytics.contentId, contentId)).limit(1);
   if (!analytics) {
     return {
       views: 0,
@@ -3026,7 +3685,7 @@ async function getTopPerformingContent(limit = 10, userId) {
     shares: contentAnalytics.shares,
     engagementRate: contentAnalytics.engagementRate,
     conversions: contentAnalytics.conversions
-  }).from(content).leftJoin(contentAnalytics, eq19(content.id, contentAnalytics.contentId)).where(and14(eq19(content.status, "approved"), admin ? void 0 : eq19(content.createdBy, userId))).orderBy(desc9(contentAnalytics.views)).limit(limit);
+  }).from(content).leftJoin(contentAnalytics, eq20(content.id, contentAnalytics.contentId)).where(and15(eq20(content.status, "approved"), admin ? void 0 : eq20(content.createdBy, userId))).orderBy(desc10(contentAnalytics.views)).limit(limit);
   return topContent;
 }
 async function getPerformanceSummary(userId) {
@@ -3039,7 +3698,7 @@ async function getPerformanceSummary(userId) {
     shares: contentAnalytics.shares,
     conversions: contentAnalytics.conversions,
     engagementRate: contentAnalytics.engagementRate
-  }).from(contentAnalytics).innerJoin(content, eq19(contentAnalytics.contentId, content.id)).where(admin ? void 0 : eq19(content.createdBy, userId));
+  }).from(contentAnalytics).innerJoin(content, eq20(contentAnalytics.contentId, content.id)).where(admin ? void 0 : eq20(content.createdBy, userId));
   const totalViews = allAnalytics.reduce((sum, a) => sum + (a.views || 0), 0);
   const totalClicks = allAnalytics.reduce((sum, a) => sum + (a.clicks || 0), 0);
   const totalShares = allAnalytics.reduce((sum, a) => sum + (a.shares || 0), 0);
@@ -3057,12 +3716,12 @@ async function getPerformanceSummary(userId) {
 async function trackContentView(contentId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [existing] = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, contentId)).limit(1);
+  const [existing] = await db6.select().from(contentAnalytics).where(eq20(contentAnalytics.contentId, contentId)).limit(1);
   if (existing) {
     await db6.update(contentAnalytics).set({
       views: (existing.views || 0) + 1,
       recordedAt: /* @__PURE__ */ new Date()
-    }).where(eq19(contentAnalytics.contentId, contentId));
+    }).where(eq20(contentAnalytics.contentId, contentId));
   } else {
     await db6.insert(contentAnalytics).values({
       contentId,
@@ -3080,12 +3739,12 @@ async function trackContentView(contentId) {
 async function trackContentClick(contentId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [existing] = await db6.select().from(contentAnalytics).where(eq19(contentAnalytics.contentId, contentId)).limit(1);
+  const [existing] = await db6.select().from(contentAnalytics).where(eq20(contentAnalytics.contentId, contentId)).limit(1);
   if (existing) {
     await db6.update(contentAnalytics).set({
       clicks: (existing.clicks || 0) + 1,
       recordedAt: /* @__PURE__ */ new Date()
-    }).where(eq19(contentAnalytics.contentId, contentId));
+    }).where(eq20(contentAnalytics.contentId, contentId));
   }
   return { success: true };
 }
@@ -3101,7 +3760,7 @@ async function getPerformanceTrends(days = 30, userId) {
     views: contentAnalytics.views,
     clicks: contentAnalytics.clicks,
     recordedAt: contentAnalytics.recordedAt
-  }).from(contentAnalytics).innerJoin(content, eq19(contentAnalytics.contentId, content.id)).where(and14(gte4(contentAnalytics.recordedAt, since), admin ? void 0 : eq19(content.createdBy, userId))).orderBy(desc9(contentAnalytics.recordedAt));
+  }).from(contentAnalytics).innerJoin(content, eq20(contentAnalytics.contentId, content.id)).where(and15(gte5(contentAnalytics.recordedAt, since), admin ? void 0 : eq20(content.createdBy, userId))).orderBy(desc10(contentAnalytics.recordedAt));
   return recentAnalytics;
 }
 var init_performanceTracking = __esm({
@@ -3124,14 +3783,16 @@ __export(clientPortalAuth_exports, {
   generateInvitationToken: () => generateInvitationToken,
   getClientPortalUser: () => getClientPortalUser,
   hashPassword: () => hashPassword,
+  isPortalSessionLive: () => isPortalSessionLive,
   listClientPortalUsers: () => listClientPortalUsers,
   loginClientPortalUser: () => loginClientPortalUser,
+  regenerateInvitation: () => regenerateInvitation,
   verifyClientPortalToken: () => verifyClientPortalToken,
   verifyPassword: () => verifyPassword
 });
-import { eq as eq20 } from "drizzle-orm";
+import { eq as eq21, sql as sql6 } from "drizzle-orm";
 import * as crypto2 from "crypto";
-import bcrypt from "bcryptjs";
+import bcrypt2 from "bcryptjs";
 import jwt2 from "jsonwebtoken";
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
@@ -3144,11 +3805,11 @@ function isBcryptHash(hash) {
   return /^\$2[aby]\$/.test(hash);
 }
 async function hashPassword(password) {
-  return bcrypt.hash(password, BCRYPT_ROUNDS);
+  return bcrypt2.hash(password, BCRYPT_ROUNDS);
 }
 async function verifyPassword(password, hash) {
   if (isBcryptHash(hash)) {
-    return bcrypt.compare(password, hash);
+    return bcrypt2.compare(password, hash);
   }
   const attempt = crypto2.createHash("sha256").update(password).digest("hex");
   const a = Buffer.from(attempt);
@@ -3161,7 +3822,7 @@ function generateInvitationToken() {
 async function createClientPortalInvitation(clientId, email, name, role = "client_viewer") {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const existing = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.email, email)).limit(1);
+  const existing = await db6.select().from(clientPortalUsers).where(eq21(clientPortalUsers.email, email)).limit(1);
   if (existing.length > 0) {
     throw new Error("User with this email already exists");
   }
@@ -3193,12 +3854,12 @@ async function createClientPortalInvitation(clientId, email, name, role = "clien
 async function acceptInvitation(token, newPassword) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [user] = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.invitationToken, token)).limit(1);
+  const [user] = await db6.select().from(clientPortalUsers).where(eq21(clientPortalUsers.invitationToken, token)).limit(1);
   if (!user) {
-    throw new Error("Invalid invitation token");
+    throw new Error("This invitation link is invalid or has already been used.");
   }
   if (user.invitationExpiry && /* @__PURE__ */ new Date() > user.invitationExpiry) {
-    throw new Error("Invitation has expired");
+    throw new Error("This invitation has expired. Ask your account manager to resend it.");
   }
   const passwordHash = await hashPassword(newPassword);
   await db6.update(clientPortalUsers).set({
@@ -3207,13 +3868,25 @@ async function acceptInvitation(token, newPassword) {
     invitationToken: null,
     invitationExpiry: null,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq20(clientPortalUsers.id, user.id));
-  return { success: true, userId: user.id };
+  }).where(eq21(clientPortalUsers.id, user.id));
+  const [client] = await db6.select({ slug: clients.slug }).from(clients).where(eq21(clients.id, user.clientId)).limit(1);
+  return { success: true, userId: user.id, slug: client?.slug ?? null };
+}
+async function regenerateInvitation(userId) {
+  const db6 = await getDb();
+  if (!db6) throw new Error("Database not available");
+  const [user] = await db6.select().from(clientPortalUsers).where(eq21(clientPortalUsers.id, userId)).limit(1);
+  if (!user || user.isActive !== 0 || !user.invitationToken) return null;
+  const token = generateInvitationToken();
+  const expiry = /* @__PURE__ */ new Date();
+  expiry.setHours(expiry.getHours() + INVITATION_EXPIRY_HOURS);
+  await db6.update(clientPortalUsers).set({ invitationToken: token, invitationExpiry: expiry, updatedAt: /* @__PURE__ */ new Date() }).where(eq21(clientPortalUsers.id, userId));
+  return { id: user.id, clientId: user.clientId, email: user.email, name: user.name, token, expiresAt: expiry };
 }
 async function createDirectPortalUser(clientId, email, name, password, role = "client_admin") {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const existing = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.email, email)).limit(1);
+  const existing = await db6.select().from(clientPortalUsers).where(eq21(clientPortalUsers.email, email)).limit(1);
   if (existing.length > 0) {
     throw new Error("A portal user with this email already exists");
   }
@@ -3230,7 +3903,7 @@ async function createDirectPortalUser(clientId, email, name, password, role = "c
   }).returning({ id: clientPortalUsers.id });
   return { id: result.id, email, name, role };
 }
-function createPortalImpersonationToken(clientId, clientName) {
+function createPortalImpersonationToken(clientId, clientName, slug = null) {
   const token = jwt2.sign(
     {
       userId: 0,
@@ -3249,35 +3922,39 @@ function createPortalImpersonationToken(clientId, clientName) {
       clientId,
       email: "owner-preview@portal",
       name: `${clientName} (preview)`,
-      role: "client_admin"
+      role: "client_admin",
+      slug
     }
   };
 }
 async function loginClientPortalUser(email, password) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [user] = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.email, email)).limit(1);
+  const [user] = await db6.select().from(clientPortalUsers).where(eq21(clientPortalUsers.email, email)).limit(1);
   if (!user) {
+    await burnPasswordCheck(password);
     throw new Error("Invalid email or password");
-  }
-  if (user.isActive === 0) {
-    throw new Error("Account is not activated. Please check your invitation email.");
   }
   if (!await verifyPassword(password, user.passwordHash)) {
     throw new Error("Invalid email or password");
   }
+  if (user.isActive === 0) {
+    throw new Error("This portal account isn't active. Please contact your account manager.");
+  }
   if (!isBcryptHash(user.passwordHash)) {
     const upgraded = await hashPassword(password);
-    await db6.update(clientPortalUsers).set({ passwordHash: upgraded }).where(eq20(clientPortalUsers.id, user.id));
+    await db6.update(clientPortalUsers).set({ passwordHash: upgraded }).where(eq21(clientPortalUsers.id, user.id));
   }
-  await db6.update(clientPortalUsers).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where(eq20(clientPortalUsers.id, user.id));
+  await db6.update(clientPortalUsers).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where(eq21(clientPortalUsers.id, user.id));
+  const [client] = await db6.select({ slug: clients.slug }).from(clients).where(eq21(clients.id, user.clientId)).limit(1);
   const token = jwt2.sign(
     {
       userId: user.id,
       clientId: user.clientId,
       email: user.email,
       role: user.role,
-      type: "client_portal"
+      type: "client_portal",
+      ver: user.tokenVersion
     },
     getJwtSecret(),
     { expiresIn: "7d" }
@@ -3289,7 +3966,8 @@ async function loginClientPortalUser(email, password) {
       clientId: user.clientId,
       email: user.email,
       name: user.name,
-      role: user.role
+      role: user.role,
+      slug: client?.slug ?? null
     }
   };
 }
@@ -3304,6 +3982,17 @@ function verifyClientPortalToken(token) {
     throw new Error("Invalid or expired token");
   }
 }
+async function isPortalSessionLive(decoded) {
+  if (decoded.userId === 0) return true;
+  const db6 = await getDb();
+  if (!db6) return false;
+  const [user] = await db6.select({
+    clientId: clientPortalUsers.clientId,
+    isActive: clientPortalUsers.isActive,
+    tokenVersion: clientPortalUsers.tokenVersion
+  }).from(clientPortalUsers).where(eq21(clientPortalUsers.id, decoded.userId)).limit(1);
+  return !!user && user.isActive === 1 && user.clientId === decoded.clientId && user.tokenVersion === (decoded.ver ?? 0);
+}
 async function getClientPortalUser(userId) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
@@ -3317,7 +4006,7 @@ async function getClientPortalUser(userId) {
     lastLoginAt: clientPortalUsers.lastLoginAt,
     clientName: clients.name,
     clientCompany: clients.company
-  }).from(clientPortalUsers).leftJoin(clients, eq20(clientPortalUsers.clientId, clients.id)).where(eq20(clientPortalUsers.id, userId)).limit(1);
+  }).from(clientPortalUsers).leftJoin(clients, eq21(clientPortalUsers.clientId, clients.id)).where(eq21(clientPortalUsers.id, userId)).limit(1);
   return user;
 }
 async function listClientPortalUsers(clientId) {
@@ -3329,15 +4018,21 @@ async function listClientPortalUsers(clientId) {
     name: clientPortalUsers.name,
     role: clientPortalUsers.role,
     isActive: clientPortalUsers.isActive,
+    invitationToken: clientPortalUsers.invitationToken,
+    invitationExpiry: clientPortalUsers.invitationExpiry,
     lastLoginAt: clientPortalUsers.lastLoginAt,
     createdAt: clientPortalUsers.createdAt
-  }).from(clientPortalUsers).where(eq20(clientPortalUsers.clientId, clientId));
-  return users2;
+  }).from(clientPortalUsers).where(eq21(clientPortalUsers.clientId, clientId));
+  return users2.map(({ invitationToken, invitationExpiry, ...u }) => ({
+    ...u,
+    invitePending: u.isActive === 0 && !!invitationToken,
+    inviteExpired: u.isActive === 0 && !!invitationToken && !!invitationExpiry && invitationExpiry < /* @__PURE__ */ new Date()
+  }));
 }
 async function changeClientPortalPassword(userId, oldPassword, newPassword) {
   const db6 = await getDb();
   if (!db6) throw new Error("Database not available");
-  const [user] = await db6.select().from(clientPortalUsers).where(eq20(clientPortalUsers.id, userId)).limit(1);
+  const [user] = await db6.select().from(clientPortalUsers).where(eq21(clientPortalUsers.id, userId)).limit(1);
   if (!user) {
     throw new Error("User not found");
   }
@@ -3347,8 +4042,9 @@ async function changeClientPortalPassword(userId, oldPassword, newPassword) {
   const newPasswordHash = await hashPassword(newPassword);
   await db6.update(clientPortalUsers).set({
     passwordHash: newPasswordHash,
+    tokenVersion: sql6`${clientPortalUsers.tokenVersion} + 1`,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq20(clientPortalUsers.id, userId));
+  }).where(eq21(clientPortalUsers.id, userId));
   return { success: true };
 }
 async function deactivateClientPortalUser(userId) {
@@ -3356,8 +4052,10 @@ async function deactivateClientPortalUser(userId) {
   if (!db6) throw new Error("Database not available");
   await db6.update(clientPortalUsers).set({
     isActive: 0,
+    // Bump too, so a later reactivation doesn't revive tokens issued before deactivation.
+    tokenVersion: sql6`${clientPortalUsers.tokenVersion} + 1`,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq20(clientPortalUsers.id, userId));
+  }).where(eq21(clientPortalUsers.id, userId));
   return { success: true };
 }
 var INVITATION_EXPIRY_HOURS, BCRYPT_ROUNDS;
@@ -3366,562 +4064,9 @@ var init_clientPortalAuth = __esm({
     "use strict";
     init_db();
     init_schema();
+    init_passwordTiming();
     INVITATION_EXPIRY_HOURS = 72;
     BCRYPT_ROUNDS = 10;
-  }
-});
-
-// server/clientPortalData.ts
-var clientPortalData_exports = {};
-__export(clientPortalData_exports, {
-  addPortalFeedback: () => addPortalFeedback,
-  getFeedbackForContent: () => getFeedbackForContent,
-  getPortalBranding: () => getPortalBranding2,
-  getPortalContentAnalytics: () => getPortalContentAnalytics,
-  getPortalContentById: () => getPortalContentById,
-  getPortalContentList: () => getPortalContentList,
-  getPortalFeedback: () => getPortalFeedback,
-  getPortalMe: () => getPortalMe,
-  getPortalPerformance: () => getPortalPerformance,
-  getPortalServicePlan: () => getPortalServicePlan,
-  getPortalStats: () => getPortalStats,
-  intentLabel: () => intentLabel,
-  portalApproveContent: () => portalApproveContent,
-  portalRequestRevision: () => portalRequestRevision,
-  providerLabel: () => providerLabel
-});
-import { and as and16, asc as asc3, desc as desc10, eq as eq21, gte as gte5, inArray as inArray3, sql as sql5 } from "drizzle-orm";
-async function db5() {
-  const d = await getDb();
-  if (!d) throw new Error("Database not available");
-  return d;
-}
-function providerLabel(provider) {
-  return PROVIDER_LABELS[provider] ?? provider;
-}
-function intentLabel(intent) {
-  if (!intent) return null;
-  const parts = intent.split(/[,\s/]+/).map((p) => p.trim().toLowerCase()).filter(Boolean);
-  if (!parts.length) return null;
-  const labels = parts.map((p) => INTENT_LABELS[p] ?? p.charAt(0).toUpperCase() + p.slice(1));
-  return Array.from(new Set(labels)).join(" / ");
-}
-async function getPortalMe(clientId, role, email) {
-  const d = await db5();
-  const [client] = await d.select({ id: clients.id, name: clients.name, company: clients.company }).from(clients).where(eq21(clients.id, clientId)).limit(1);
-  return {
-    clientId,
-    role,
-    email,
-    clientName: client?.name ?? "",
-    clientCompany: client?.company ?? ""
-  };
-}
-async function getPortalBranding2(clientId) {
-  const d = await db5();
-  const [row] = await d.select().from(portalBranding).where(eq21(portalBranding.clientId, clientId)).limit(1);
-  return row ?? null;
-}
-async function getPortalContentList(clientId) {
-  const d = await db5();
-  return d.select().from(content).where(eq21(content.clientId, clientId)).orderBy(desc10(content.createdAt));
-}
-async function getPortalContentById(clientId, id) {
-  const d = await db5();
-  const [row] = await d.select().from(content).where(and16(eq21(content.id, id), eq21(content.clientId, clientId))).limit(1);
-  return row ?? null;
-}
-async function getPortalStats(clientId) {
-  const rows = await getPortalContentList(clientId);
-  return {
-    totalContent: rows.length,
-    pendingApproval: rows.filter((r) => r.status !== "approved").length,
-    approved: rows.filter((r) => r.status === "approved").length,
-    recent: rows.slice(0, 5).map((r) => ({
-      id: r.id,
-      title: r.title,
-      status: r.status,
-      createdAt: r.createdAt
-    }))
-  };
-}
-async function portalApproveContent(clientId, contentId) {
-  const d = await db5();
-  const existing = await getPortalContentById(clientId, contentId);
-  if (!existing) return false;
-  await d.update(content).set({ status: "approved", wasApproved: 1, approvedAt: /* @__PURE__ */ new Date(), progress: 100 }).where(and16(eq21(content.id, contentId), eq21(content.clientId, clientId)));
-  return true;
-}
-async function portalRequestRevision(clientId, contentId) {
-  const d = await db5();
-  const existing = await getPortalContentById(clientId, contentId);
-  if (!existing) return false;
-  await d.update(content).set({ status: "in_progress", wasApproved: 0, approvedAt: null }).where(and16(eq21(content.id, contentId), eq21(content.clientId, clientId)));
-  return true;
-}
-async function getPortalFeedback(clientId, contentId) {
-  const d = await db5();
-  const owned = await getPortalContentById(clientId, contentId);
-  if (!owned) return [];
-  return d.select().from(portalFeedback).where(and16(eq21(portalFeedback.contentId, contentId), eq21(portalFeedback.clientId, clientId))).orderBy(desc10(portalFeedback.createdAt));
-}
-async function getFeedbackForContent(contentId) {
-  const d = await db5();
-  return d.select().from(portalFeedback).where(eq21(portalFeedback.contentId, contentId)).orderBy(desc10(portalFeedback.createdAt));
-}
-async function addPortalFeedback(clientId, userId, email, contentId, note) {
-  const d = await db5();
-  const owned = await getPortalContentById(clientId, contentId);
-  if (!owned) return null;
-  let authorName = "Client";
-  if (userId > 0) {
-    const [u] = await d.select({ name: clientPortalUsers.name }).from(clientPortalUsers).where(eq21(clientPortalUsers.id, userId)).limit(1);
-    if (u?.name) authorName = u.name;
-  } else {
-    authorName = "Agency (preview)";
-  }
-  const [row] = await d.insert(portalFeedback).values({ contentId, clientId, authorName, authorEmail: email, note }).returning();
-  return row;
-}
-async function findClientBrandId(clientId) {
-  const d = await db5();
-  const [client] = await d.select({ createdBy: clients.createdBy, websiteUrl: clients.websiteUrl, businessWebsite: clients.businessWebsite }).from(clients).where(eq21(clients.id, clientId)).limit(1);
-  if (!client) return null;
-  const domainSource = client.websiteUrl || client.businessWebsite || "";
-  if (!domainSource) return null;
-  const clientDomain2 = normalizeDomain(domainSource);
-  const brands = await d.select({ id: aiBrands.id, domain: aiBrands.domain }).from(aiBrands).where(eq21(aiBrands.createdBy, client.createdBy));
-  const match = brands.find((b) => b.domain && normalizeDomain(b.domain) === clientDomain2);
-  return match?.id ?? null;
-}
-async function getPortalContentAnalytics(clientId) {
-  const d = await db5();
-  const rows = await d.select({
-    id: content.id,
-    title: content.title,
-    contentType: content.contentType,
-    status: content.status,
-    createdAt: content.createdAt
-  }).from(content).where(eq21(content.clientId, clientId));
-  const empty = {
-    hasData: false,
-    totalPieces: rows.length,
-    totalViews: 0,
-    avgEngagement: 0,
-    aiCitationsEarned: 0,
-    byType: [],
-    viewsOverTime: [],
-    types: [],
-    library: []
-  };
-  let aiCitationsEarned = 0;
-  const brandId = await findClientBrandId(clientId);
-  if (brandId != null) {
-    const [m] = await d.select({ n: sql5`count(*)` }).from(aiVisibilityResults).where(and16(eq21(aiVisibilityResults.brandId, brandId), eq21(aiVisibilityResults.mentioned, 1)));
-    aiCitationsEarned = Number(m?.n ?? 0);
-  }
-  empty.aiCitationsEarned = aiCitationsEarned;
-  if (rows.length === 0) return empty;
-  const ids = rows.map((r) => r.id);
-  const analytics = await d.select().from(contentAnalytics).where(inArray3(contentAnalytics.contentId, ids)).orderBy(desc10(contentAnalytics.recordedAt));
-  if (analytics.length === 0) return empty;
-  const latest = /* @__PURE__ */ new Map();
-  for (const a of analytics) if (!latest.has(a.contentId)) latest.set(a.contentId, a);
-  let totalViews = 0;
-  let engSum = 0;
-  let engCount = 0;
-  const byType = /* @__PURE__ */ new Map();
-  const library = rows.map((r) => {
-    const a = latest.get(r.id);
-    const views = a?.views ?? 0;
-    const engagement = a?.engagementRate ?? 0;
-    const conversions = a?.conversions ?? 0;
-    totalViews += views;
-    if (a) {
-      engSum += engagement;
-      engCount += 1;
-      const t2 = byType.get(r.contentType) ?? { views: 0, engSum: 0, count: 0 };
-      t2.views += views;
-      t2.engSum += engagement;
-      t2.count += 1;
-      byType.set(r.contentType, t2);
-    }
-    return {
-      id: r.id,
-      title: r.title,
-      type: r.contentType,
-      status: r.status,
-      publishedAt: r.createdAt,
-      views,
-      engagement,
-      conversions
-    };
-  });
-  library.sort((a, b) => b.views - a.views);
-  const typeById = new Map(rows.map((r) => [r.id, r.contentType]));
-  const typesPresent = Array.from(new Set(rows.map((r) => r.contentType)));
-  const monthMap = /* @__PURE__ */ new Map();
-  for (const a of analytics) {
-    const dt = new Date(a.recordedAt);
-    const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, "0")}`;
-    const label = dt.toLocaleString("en-US", { month: "short" });
-    const type = typeById.get(a.contentId) ?? "other";
-    const entry = monthMap.get(key) ?? { sort: dt.getTime(), row: { label } };
-    entry.row[type] = (entry.row[type] ?? 0) + a.views;
-    monthMap.set(key, entry);
-  }
-  const viewsOverTime = Array.from(monthMap.values()).sort((a, b) => a.sort - b.sort).map((e) => e.row);
-  return {
-    hasData: true,
-    totalPieces: rows.length,
-    totalViews,
-    avgEngagement: engCount > 0 ? Math.round(engSum / engCount * 10) / 10 : 0,
-    aiCitationsEarned,
-    byType: Array.from(byType.entries()).map(([type, t2]) => ({
-      type,
-      views: t2.views,
-      engagement: t2.count > 0 ? Math.round(t2.engSum / t2.count * 10) / 10 : 0
-    })),
-    viewsOverTime,
-    types: typesPresent,
-    library
-  };
-}
-function startOfCurrentMonth() {
-  const now = /* @__PURE__ */ new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
-}
-function currentMonthLabel() {
-  return (/* @__PURE__ */ new Date()).toLocaleString("en-US", { month: "long", year: "numeric" });
-}
-async function getPortalServicePlan(clientId) {
-  const d = await db5();
-  const [client] = await d.select({ servicePlan: clients.servicePlan }).from(clients).where(eq21(clients.id, clientId)).limit(1);
-  let items = [];
-  try {
-    items = client?.servicePlan ? JSON.parse(client.servicePlan) : [];
-  } catch {
-    items = [];
-  }
-  if (!items.length) return { hasPlan: false, monthLabel: currentMonthLabel(), items: [] };
-  const counts = /* @__PURE__ */ new Map();
-  const needsContentCounts = items.some(
-    (i) => i.type === "quota" && typeof i.source === "string" && i.source.startsWith("content:")
-  );
-  if (needsContentCounts) {
-    const rows = await d.select({ type: content.contentType, n: sql5`count(*)` }).from(content).where(and16(eq21(content.clientId, clientId), gte5(content.createdAt, startOfCurrentMonth()))).groupBy(content.contentType);
-    for (const r of rows) counts.set(r.type, Number(r.n));
-  }
-  const enriched = items.map((i) => {
-    if (i.type === "quota") {
-      let delivered = i.delivered ?? 0;
-      if (typeof i.source === "string" && i.source.startsWith("content:")) {
-        delivered = counts.get(i.source.split(":")[1]) ?? 0;
-      }
-      return { ...i, delivered };
-    }
-    return i;
-  });
-  return { hasPlan: true, monthLabel: currentMonthLabel(), items: enriched };
-}
-function parseSeoOverview(raw) {
-  if (!raw) return { domainOverview: null, siteAudit: null, backlinks: null };
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      domainOverview: parsed.domainOverview ?? null,
-      siteAudit: parsed.siteAudit ?? null,
-      backlinks: parsed.backlinks ?? null
-    };
-  } catch {
-    return { domainOverview: null, siteAudit: null, backlinks: null };
-  }
-}
-async function getPortalPerformance(clientId) {
-  const d = await db5();
-  const [client] = await d.select().from(clients).where(eq21(clients.id, clientId)).limit(1);
-  if (!client) throw new Error("Client not found");
-  const onboardedAt = client.createdAt;
-  const monthsActive = Math.max(
-    0,
-    Math.round((Date.now() - new Date(onboardedAt).getTime()) / (30 * 24 * 60 * 60 * 1e3))
-  );
-  const locationParts = [client.city, client.state].filter(Boolean);
-  const profile = {
-    name: client.businessName || client.name,
-    location: locationParts.join(", "),
-    industry: client.industry || client.businessType || "",
-    onboardedAt,
-    monthsActive
-  };
-  const brandId = await findClientBrandId(clientId);
-  let aiVisibility = emptyAiVisibility();
-  if (brandId != null) {
-    aiVisibility = await buildAiVisibility(brandId, profile.name);
-  }
-  const keywords = await buildKeywordRankings(clientId);
-  const seo = parseSeoOverview(client.seoOverview);
-  return {
-    profile,
-    domainOverview: seo.domainOverview,
-    siteAudit: seo.siteAudit,
-    backlinks: seo.backlinks,
-    hasSeoData: !!(seo.domainOverview || seo.siteAudit || seo.backlinks),
-    hasAiData: aiVisibility.hasAiData,
-    hasKeywordData: keywords.length > 0,
-    visibilityScore: aiVisibility.visibilityScore,
-    weightedScore: aiVisibility.weightedScore,
-    bestRank: aiVisibility.bestRank,
-    topEngine: aiVisibility.topEngine,
-    // "verified" only when the brand was actually cited by an engine, not merely scanned.
-    citationStatus: aiVisibility.citations.length > 0 ? "verified" : "none",
-    engines: aiVisibility.engines,
-    rankProgression: aiVisibility.rankProgression,
-    startVsCurrent: aiVisibility.startVsCurrent,
-    citations: aiVisibility.citations,
-    shareOfVoice: aiVisibility.shareOfVoice,
-    radar: aiVisibility.radar,
-    estMonthlyVisits: aiVisibility.estMonthlyVisits,
-    visitsDeltaPct: aiVisibility.visitsDeltaPct,
-    referralTraffic: aiVisibility.referralTraffic,
-    competitors: aiVisibility.competitors,
-    competitorRank: aiVisibility.competitorRank,
-    milestones: aiVisibility.milestones,
-    milestonesHit: aiVisibility.milestonesHit,
-    keywords
-  };
-}
-function emptyAiVisibility() {
-  return {
-    hasAiData: false,
-    visibilityScore: null,
-    weightedScore: null,
-    bestRank: null,
-    topEngine: null,
-    engines: [],
-    rankProgression: [],
-    startVsCurrent: [],
-    citations: [],
-    shareOfVoice: [],
-    radar: [],
-    estMonthlyVisits: null,
-    visitsDeltaPct: null,
-    referralTraffic: [],
-    competitors: [],
-    competitorRank: null,
-    milestones: [],
-    milestonesHit: { done: 0, total: 0 }
-  };
-}
-async function buildAiVisibility(brandId, clientName) {
-  const d = await db5();
-  const [brand] = await d.select({ competitors: aiBrands.competitors }).from(aiBrands).where(eq21(aiBrands.id, brandId)).limit(1);
-  const rows = await d.select({
-    scanId: aiVisibilityResults.scanId,
-    provider: aiVisibilityResults.provider,
-    mentioned: aiVisibilityResults.mentioned,
-    position: aiVisibilityResults.position,
-    sentiment: aiVisibilityResults.sentiment,
-    competitorsMentioned: aiVisibilityResults.competitorsMentioned,
-    summary: aiVisibilityResults.summary,
-    answerExcerpt: aiVisibilityResults.answerExcerpt,
-    prompt: aiPrompts.prompt,
-    createdAt: aiVisibilityResults.createdAt
-  }).from(aiVisibilityResults).leftJoin(aiPrompts, eq21(aiVisibilityResults.promptId, aiPrompts.id)).where(eq21(aiVisibilityResults.brandId, brandId)).orderBy(asc3(aiVisibilityResults.createdAt));
-  if (rows.length === 0) return emptyAiVisibility();
-  const scanOrder = [];
-  for (const r of rows) if (!scanOrder.includes(r.scanId)) scanOrder.push(r.scanId);
-  const firstScan = scanOrder[0];
-  const lastScan = scanOrder[scanOrder.length - 1];
-  const providers = Array.from(new Set(rows.map((r) => r.provider)));
-  const bestRankIn = (scanId, provider) => {
-    const positions = rows.filter((r) => r.scanId === scanId && r.provider === provider && r.position != null).map((r) => r.position);
-    return positions.length ? Math.min(...positions) : null;
-  };
-  const engines = providers.map((provider) => {
-    const currentRank = bestRankIn(lastScan, provider);
-    const startRank = bestRankIn(firstScan, provider);
-    const delta = currentRank != null && startRank != null ? startRank - currentRank : null;
-    let status = "Holding";
-    if (delta != null && delta > 0) status = `\u2191 ${delta} position${delta > 1 ? "s" : ""}`;
-    else if (delta != null && delta < 0) status = `\u2193 ${Math.abs(delta)}`;
-    return { provider, label: providerLabel(provider), currentRank, startRank, delta, status };
-  });
-  const latestRows = rows.filter((r) => r.scanId === lastScan);
-  const mentioned = latestRows.filter((r) => r.mentioned).length;
-  const visibilityScore = latestRows.length ? Math.round(mentioned / latestRows.length * 100) : 0;
-  const rankedEngines = engines.filter((e) => e.currentRank != null);
-  const bestRank = rankedEngines.length ? Math.min(...rankedEngines.map((e) => e.currentRank)) : null;
-  const topEngine = rankedEngines.length ? rankedEngines.reduce(
-    (a, b) => a.currentRank <= b.currentRank ? a : b
-  ).label : null;
-  const rankProgression = scanOrder.map((scanId, i) => {
-    const row = { label: `M${i + 1}` };
-    for (const p of providers) row[p] = bestRankIn(scanId, p);
-    return row;
-  });
-  const startVsCurrent = engines.map((e) => ({
-    provider: e.provider,
-    label: e.label,
-    start: e.startRank,
-    current: e.currentRank
-  }));
-  const citations = [];
-  for (const provider of providers) {
-    const best = latestRows.filter((r) => r.provider === provider && r.mentioned).sort((a, b) => (a.position ?? 999) - (b.position ?? 999))[0];
-    if (best) {
-      citations.push({
-        provider,
-        label: providerLabel(provider),
-        prompt: best.prompt ?? "",
-        excerpt: best.summary || best.answerExcerpt || "",
-        position: best.position,
-        mentioned: true
-      });
-    }
-  }
-  const mentionsByProvider = providers.map((p) => ({
-    provider: p,
-    label: providerLabel(p),
-    mentions: latestRows.filter((r) => r.provider === p && r.mentioned).length
-  }));
-  const totalMentions = mentionsByProvider.reduce((s, x) => s + x.mentions, 0);
-  const shareOfVoice = mentionsByProvider.map((x) => ({
-    ...x,
-    pct: totalMentions > 0 ? Math.round(x.mentions / totalMentions * 100) : 0
-  }));
-  const radar = providers.map((p) => {
-    const pr = latestRows.filter((r) => r.provider === p);
-    const rate = pr.length ? Math.round(pr.filter((r) => r.mentioned).length / pr.length * 100) : 0;
-    return { dimension: providerLabel(p), value: rate };
-  });
-  const mentionedLatest = latestRows.filter((r) => r.mentioned);
-  const citationTrust = mentionedLatest.length ? Math.round(mentionedLatest.filter((r) => r.sentiment === "positive").length / mentionedLatest.length * 100) : 0;
-  const firstRows = rows.filter((r) => r.scanId === firstScan);
-  const firstRate = firstRows.length ? firstRows.filter((r) => r.mentioned).length / firstRows.length * 100 : 0;
-  const momentum = Math.max(0, Math.min(100, Math.round(50 + (visibilityScore - firstRate))));
-  radar.push({ dimension: "Citation Trust", value: citationTrust });
-  radar.push({ dimension: "Momentum", value: momentum });
-  const posRows = mentionedLatest.filter((r) => r.position != null);
-  const posQuality = posRows.length ? posRows.reduce((s, r) => s + Math.max(0, 1 - (r.position - 1) / 10), 0) / posRows.length : 0;
-  const weightedScore = Math.round(visibilityScore * 0.6 + posQuality * 100 * 0.4);
-  const referralTraffic = scanOrder.map((scanId, i) => {
-    const row = { label: `M${i + 1}` };
-    for (const p of providers) {
-      row[p] = rows.filter((r) => r.scanId === scanId && r.provider === p && r.mentioned).length * VISITS_PER_MENTION;
-    }
-    return row;
-  });
-  const estMonthlyVisits = totalMentions * VISITS_PER_MENTION;
-  const firstVisits = firstRows.filter((r) => r.mentioned).length * VISITS_PER_MENTION;
-  const visitsDeltaPct = firstVisits > 0 ? Math.round((estMonthlyVisits - firstVisits) / firstVisits * 100) : null;
-  let competitorNames = [];
-  try {
-    competitorNames = brand?.competitors ? JSON.parse(brand.competitors) : [];
-  } catch {
-    competitorNames = [];
-  }
-  const compCounts = new Map(competitorNames.map((n) => [n, 0]));
-  for (const r of latestRows) {
-    if (!r.competitorsMentioned) continue;
-    let arr = [];
-    try {
-      arr = JSON.parse(r.competitorsMentioned);
-    } catch {
-      arr = [];
-    }
-    for (const nm of arr) if (compCounts.has(nm)) compCounts.set(nm, (compCounts.get(nm) ?? 0) + 1);
-  }
-  const compEntries = [
-    { name: clientName, isYou: true, score: totalMentions },
-    ...competitorNames.map((n) => ({ name: n, isYou: false, score: compCounts.get(n) ?? 0 }))
-  ].sort((a, b) => b.score - a.score);
-  const competitors = compEntries.map((e, i) => ({ ...e, rank: i + 1 }));
-  const youRank = competitors.find((c) => c.isYou)?.rank ?? null;
-  const competitorRank = youRank != null ? { rank: youRank, total: competitors.length } : null;
-  const rankedEver = rows.filter((r) => r.position != null).map((r) => r.position);
-  const bestEver = rankedEver.length ? Math.min(...rankedEver) : null;
-  const everMentioned = rows.some((r) => r.mentioned);
-  const multiEngine = providers.filter((p) => latestRows.some((r) => r.provider === p && r.mentioned)).length >= 2;
-  const milestones = [
-    { label: "Onboarded to AI Knowledge Graph", month: 1, done: true },
-    { label: "First AI citation detected", month: 2, done: everMentioned },
-    { label: "Reached Top 10", month: 3, done: bestEver != null && bestEver <= 10 },
-    { label: "Reached Top 3", month: 4, done: bestEver != null && bestEver <= 3 },
-    { label: "Multi-engine coverage", month: 5, done: multiEngine },
-    { label: "#1 Position secured", month: 6, done: bestEver === 1 }
-  ];
-  const milestonesHit = { done: milestones.filter((m) => m.done).length, total: milestones.length };
-  return {
-    hasAiData: true,
-    visibilityScore,
-    weightedScore,
-    bestRank,
-    topEngine,
-    engines,
-    rankProgression,
-    startVsCurrent,
-    citations,
-    shareOfVoice,
-    radar,
-    estMonthlyVisits,
-    visitsDeltaPct,
-    referralTraffic,
-    competitors,
-    competitorRank,
-    milestones,
-    milestonesHit
-  };
-}
-async function buildKeywordRankings(clientId) {
-  const d = await db5();
-  const keywords = await d.select().from(trackedKeywords).where(and16(eq21(trackedKeywords.clientId, clientId), eq21(trackedKeywords.isActive, 1)));
-  if (keywords.length === 0) return [];
-  const ids = keywords.map((k) => k.id);
-  const snaps = await d.select().from(rankSnapshots).where(inArray3(rankSnapshots.keywordId, ids)).orderBy(desc10(rankSnapshots.checkedAt));
-  return keywords.map((k) => {
-    const history = snaps.filter((s) => s.keywordId === k.id);
-    const current = history[0]?.position ?? null;
-    const prev = history[1]?.position ?? null;
-    let status = "New";
-    if (prev != null && current != null) {
-      if (current < prev) status = "Rising";
-      else if (current > prev) status = "Falling";
-      else status = "Stable";
-    } else if (current != null && prev == null && history.length > 1) {
-      status = "Stable";
-    }
-    return {
-      keyword: k.keyword,
-      location: k.locationName,
-      position: current,
-      prev,
-      status,
-      volume: k.searchVolume ?? null,
-      intent: intentLabel(k.intent)
-    };
-  });
-}
-var PROVIDER_LABELS, INTENT_LABELS, VISITS_PER_MENTION;
-var init_clientPortalData = __esm({
-  "server/clientPortalData.ts"() {
-    "use strict";
-    init_db();
-    init_schema();
-    init_dataforseo();
-    PROVIDER_LABELS = {
-      openai: "ChatGPT",
-      claude: "Claude",
-      gemini: "Google Gemini",
-      perplexity: "Perplexity"
-    };
-    INTENT_LABELS = {
-      i: "Informational",
-      n: "Navigational",
-      c: "Commercial",
-      t: "Transactional"
-    };
-    VISITS_PER_MENTION = 30;
   }
 });
 
@@ -4259,9 +4404,16 @@ var requirePortalUser = t.middleware(async (opts) => {
   });
 });
 var portalProcedure = t.procedure.use(requirePortalUser);
+function clientIp(req) {
+  if (process.env.VERCEL) {
+    const real = req.headers["x-real-ip"];
+    if (typeof real === "string" && real) return real;
+  }
+  return req.ip || req.socket?.remoteAddress || "unknown";
+}
 function rateLimit(opts) {
   return t.middleware(async ({ ctx, next }) => {
-    const who = ctx.user ? `u:${ctx.user.id}` : `ip:${ctx.req.ip || ctx.req.socket?.remoteAddress || "unknown"}`;
+    const who = ctx.user ? `u:${ctx.user.id}` : `ip:${clientIp(ctx.req)}`;
     const result = checkRateLimit(`${opts.name}:${who}`, opts.limit, opts.windowMs);
     if (!result.allowed) {
       throw new TRPCError2({
@@ -4310,9 +4462,9 @@ var systemRouter = router({
 });
 
 // server/routers.ts
-import { TRPCError as TRPCError10 } from "@trpc/server";
+import { TRPCError as TRPCError11 } from "@trpc/server";
 import { z as z25 } from "zod";
-import bcrypt2 from "bcryptjs";
+import bcrypt3 from "bcryptjs";
 import { nanoid as nanoid4 } from "nanoid";
 
 // shared/_core/errors.ts
@@ -4436,7 +4588,7 @@ import { nanoid } from "nanoid";
 // server/lib/gemini.ts
 init_env();
 var IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
-async function generateImageWithGemini(prompt) {
+async function generateImageWithGemini(prompt, aspectRatio) {
   if (!ENV.geminiApiKey) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
@@ -4449,7 +4601,10 @@ async function generateImageWithGemini(prompt) {
     },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ["IMAGE"] }
+      generationConfig: {
+        responseModalities: ["IMAGE"],
+        ...aspectRatio ? { imageConfig: { aspectRatio } } : {}
+      }
     })
   });
   if (!response.ok) {
@@ -4507,7 +4662,7 @@ async function uploadImage(base64, mimeType, path) {
 
 // server/_core/imageGeneration.ts
 async function generateImage(options) {
-  const { base64, mimeType } = await generateImageWithGemini(options.prompt);
+  const { base64, mimeType } = await generateImageWithGemini(options.prompt, options.aspectRatio);
   const path = `generated/${nanoid()}.${extensionForMime(mimeType)}`;
   const { url } = await uploadImage(base64, mimeType, path);
   return { url };
@@ -4599,10 +4754,24 @@ async function assertPortalUser(userId, portalUserId) {
 }
 
 // server/_core/rateLimiters.ts
+import { TRPCError as TRPCError4 } from "@trpc/server";
 var limitLlmSingle = rateLimit({ name: "llm-single", limit: 150, windowMs: 6e4 });
 var limitLlmBatch = rateLimit({ name: "llm-batch", limit: 30, windowMs: 5 * 6e4 });
 var limitData = rateLimit({ name: "data", limit: 600, windowMs: 6e4 });
+var limitAuth = rateLimit({ name: "auth", limit: 30, windowMs: 15 * 6e4 });
+function assertLoginAttemptAllowed(scope, email) {
+  const result = checkRateLimit(`login:${scope}:${email.trim().toLowerCase()}`, 10, 15 * 6e4);
+  if (!result.allowed) {
+    throw new TRPCError4({
+      code: "TOO_MANY_REQUESTS",
+      message: `Too many sign-in attempts. Try again in ${Math.ceil(result.retryAfterSeconds / 60)} min.`
+    });
+  }
+}
 var limitSend = rateLimit({ name: "send", limit: 500, windowMs: 60 * 6e4 });
+
+// server/routers.ts
+init_passwordTiming();
 
 // server/routers/bulk.ts
 import { z as z2 } from "zod";
@@ -4932,13 +5101,13 @@ var newsletterRouter = router({
 init_access();
 init_db();
 import { z as z8 } from "zod";
-import { TRPCError as TRPCError5 } from "@trpc/server";
+import { TRPCError as TRPCError6 } from "@trpc/server";
 import { nanoid as nanoid2 } from "nanoid";
 import { eq as eq5, and as and3, desc, asc } from "drizzle-orm";
 init_schema();
 async function db() {
   const d = await getDb();
-  if (!d) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  if (!d) throw new TRPCError6({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
   return d;
 }
 var aiVisibilityRouter = router({
@@ -5001,12 +5170,12 @@ var aiVisibilityRouter = router({
     const { configuredProviders: configuredProviders2 } = await Promise.resolve().then(() => (init_aiProviders(), aiProviders_exports));
     const { scanPrompt: scanPrompt2 } = await Promise.resolve().then(() => (init_aiVisibility(), aiVisibility_exports));
     const [brand] = await d.select().from(aiBrands).where(eq5(aiBrands.id, input.brandId));
-    if (!brand) throw new TRPCError5({ code: "NOT_FOUND", message: "Brand not found" });
+    if (!brand) throw new TRPCError6({ code: "NOT_FOUND", message: "Brand not found" });
     const prompts = await d.select().from(aiPrompts).where(eq5(aiPrompts.brandId, input.brandId));
-    if (prompts.length === 0) throw new TRPCError5({ code: "BAD_REQUEST", message: "Add at least one prompt first" });
+    if (prompts.length === 0) throw new TRPCError6({ code: "BAD_REQUEST", message: "Add at least one prompt first" });
     const providers = configuredProviders2();
     if (providers.length === 0) {
-      throw new TRPCError5({ code: "BAD_REQUEST", message: "No AI providers configured. Set ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY / PERPLEXITY_API_KEY." });
+      throw new TRPCError6({ code: "BAD_REQUEST", message: "No AI providers configured. Set ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY / PERPLEXITY_API_KEY." });
     }
     const competitors = brand.competitors ? JSON.parse(brand.competitors) : [];
     const scanId = nanoid2();
@@ -6978,12 +7147,12 @@ var publishingAnalyticsRouter = router({
 init_access();
 init_db();
 import { z as z21 } from "zod";
-import { TRPCError as TRPCError6 } from "@trpc/server";
+import { TRPCError as TRPCError7 } from "@trpc/server";
 import { eq as eq14, and as and10, desc as desc5 } from "drizzle-orm";
 init_schema();
 async function db2() {
   const d = await getDb();
-  if (!d) throw new TRPCError6({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  if (!d) throw new TRPCError7({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
   return d;
 }
 var siteAuditRouter = router({
@@ -6993,7 +7162,7 @@ var siteAuditRouter = router({
     const d = await db2();
     const [client] = await d.select().from(clients).where(eq14(clients.id, input.clientId));
     if (!client?.websiteUrl) {
-      throw new TRPCError6({
+      throw new TRPCError7({
         code: "BAD_REQUEST",
         message: "This client has no website URL. Add one on the client's page first."
       });
@@ -7010,7 +7179,7 @@ var siteAuditRouter = router({
     await assertSiteAudit(ctx.user.id, input.auditId);
     const d = await db2();
     const [audit] = await d.select().from(siteAudits).where(eq14(siteAudits.id, input.auditId));
-    if (!audit) throw new TRPCError6({ code: "NOT_FOUND", message: "Audit not found" });
+    if (!audit) throw new TRPCError7({ code: "NOT_FOUND", message: "Audit not found" });
     if (audit.status !== "crawling") return audit;
     const { getSiteAuditSummary: getSiteAuditSummary2, getSiteAuditPages: getSiteAuditPages2, countCritical: countCritical2, countWarnings: countWarnings2 } = await Promise.resolve().then(() => (init_siteAudit(), siteAudit_exports));
     let summary;
@@ -7064,12 +7233,12 @@ var siteAuditRouter = router({
 init_access();
 init_db();
 import { z as z22 } from "zod";
-import { TRPCError as TRPCError7 } from "@trpc/server";
+import { TRPCError as TRPCError8 } from "@trpc/server";
 import { eq as eq15, and as and11, inArray as inArray2, desc as desc6, asc as asc2 } from "drizzle-orm";
 init_schema();
 async function db3() {
   const d = await getDb();
-  if (!d) throw new TRPCError7({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  if (!d) throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
   return d;
 }
 var rankTrackingRouter = router({
@@ -7133,14 +7302,14 @@ var rankTrackingRouter = router({
     const d = await db3();
     const [client] = await d.select().from(clients).where(eq15(clients.id, input.clientId));
     if (!client?.websiteUrl) {
-      throw new TRPCError7({
+      throw new TRPCError8({
         code: "BAD_REQUEST",
         message: "This client has no website URL. Add one on the client's page first."
       });
     }
     const keywords = await d.select().from(trackedKeywords).where(and11(eq15(trackedKeywords.clientId, input.clientId), eq15(trackedKeywords.isActive, 1)));
     if (keywords.length === 0) {
-      throw new TRPCError7({ code: "BAD_REQUEST", message: "Add at least one keyword first." });
+      throw new TRPCError8({ code: "BAD_REQUEST", message: "Add at least one keyword first." });
     }
     const { checkKeywordRank: checkKeywordRank2 } = await Promise.resolve().then(() => (init_dataforseo(), dataforseo_exports));
     let checked = 0;
@@ -7178,18 +7347,18 @@ var rankTrackingRouter = router({
 init_access();
 init_db();
 import { z as z23 } from "zod";
-import { TRPCError as TRPCError8 } from "@trpc/server";
+import { TRPCError as TRPCError9 } from "@trpc/server";
 import { eq as eq16, and as and12, desc as desc7 } from "drizzle-orm";
 init_schema();
 async function db4() {
   const d = await getDb();
-  if (!d) throw new TRPCError8({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  if (!d) throw new TRPCError9({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
   return d;
 }
 async function clientDomain(d, clientId) {
   const [client] = await d.select().from(clients).where(eq16(clients.id, clientId));
   if (!client?.websiteUrl) {
-    throw new TRPCError8({
+    throw new TRPCError9({
       code: "BAD_REQUEST",
       message: "This client has no website URL. Add one on the client's page first."
     });
@@ -7278,7 +7447,7 @@ function safeParse(json) {
 
 // server/routers/team.ts
 import { z as z24 } from "zod";
-import { TRPCError as TRPCError9 } from "@trpc/server";
+import { TRPCError as TRPCError10 } from "@trpc/server";
 init_db();
 init_schema();
 import { eq as eq17, desc as desc8 } from "drizzle-orm";
@@ -7305,18 +7474,18 @@ var teamRouter = router({
     })
   ).mutation(async ({ ctx, input }) => {
     if (input.userId === ctx.user.id) {
-      throw new TRPCError9({
+      throw new TRPCError10({
         code: "BAD_REQUEST",
         message: "You can't change your own role."
       });
     }
     const db6 = await getDb();
     if (!db6) {
-      throw new TRPCError9({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      throw new TRPCError10({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
     }
     const [updated] = await db6.update(users).set({ role: input.role, updatedAt: /* @__PURE__ */ new Date() }).where(eq17(users.id, input.userId)).returning({ id: users.id, role: users.role });
     if (!updated) {
-      throw new TRPCError9({ code: "NOT_FOUND", message: "User not found" });
+      throw new TRPCError10({ code: "NOT_FOUND", message: "User not found" });
     }
     return updated;
   })
@@ -7327,21 +7496,41 @@ function publicUser(user) {
   const { passwordHash, ...safe } = user;
   return safe;
 }
+function appOrigin(req) {
+  const origin = req.headers.origin;
+  if (typeof origin === "string" && /^https?:\/\/[^/]+$/.test(origin)) return origin;
+  const proto = req.headers["x-forwarded-proto"]?.split(",")[0] || req.protocol || "https";
+  return `${proto}://${req.headers.host}`;
+}
+async function emailPortalInvite(req, clientId, to, name, token, expiresAt) {
+  const client = await getClientById(clientId);
+  const { getPortalBranding: getPortalBranding3 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+  const branding = await getPortalBranding3(clientId);
+  const { sendPortalInviteEmail: sendPortalInviteEmail2 } = await Promise.resolve().then(() => (init_portalInvite(), portalInvite_exports));
+  const result = await sendPortalInviteEmail2({
+    to,
+    name,
+    portalName: branding?.portalName || `${client?.name ?? "your"} client portal`,
+    link: `${appOrigin(req)}/portal/accept-invitation?token=${token}`,
+    expiresAt
+  });
+  return result.sent ? { emailSent: true } : { emailSent: false, emailError: result.reason };
+}
 var appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user ? publicUser(opts.ctx.user) : null),
-    signup: publicProcedure.input(z25.object({
+    signup: publicProcedure.use(limitAuth).input(z25.object({
       email: z25.string().email(),
       password: z25.string().min(8, "Password must be at least 8 characters"),
       name: z25.string().optional()
     })).mutation(async ({ ctx, input }) => {
       const existing = await getUserByEmail(input.email);
       if (existing) {
-        throw new TRPCError10({ code: "CONFLICT", message: "An account with this email already exists" });
+        throw new TRPCError11({ code: "CONFLICT", message: "An account with this email already exists" });
       }
-      const passwordHash = await bcrypt2.hash(input.password, 10);
+      const passwordHash = await bcrypt3.hash(input.password, 10);
       const openId = nanoid4();
       const user = await createUser({
         openId,
@@ -7356,17 +7545,19 @@ var appRouter = router({
       ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: SESSION_TTL_MS });
       return publicUser(user);
     }),
-    login: publicProcedure.input(z25.object({
+    login: publicProcedure.use(limitAuth).input(z25.object({
       email: z25.string().email(),
       password: z25.string()
     })).mutation(async ({ ctx, input }) => {
+      assertLoginAttemptAllowed("agency", input.email);
       const user = await getUserByEmail(input.email);
       if (!user || !user.passwordHash) {
-        throw new TRPCError10({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        await burnPasswordCheck(input.password);
+        throw new TRPCError11({ code: "UNAUTHORIZED", message: "Invalid email or password" });
       }
-      const ok = await bcrypt2.compare(input.password, user.passwordHash);
+      const ok = await bcrypt3.compare(input.password, user.passwordHash);
       if (!ok) {
-        throw new TRPCError10({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        throw new TRPCError11({ code: "UNAUTHORIZED", message: "Invalid email or password" });
       }
       const token = await sdk.createSessionToken(user.openId, { name: user.name || "", ver: user.tokenVersion ?? 0, expiresInMs: SESSION_TTL_MS });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -7893,10 +8084,23 @@ You can now publish this content to the client's CMS via the Publishing page.`
     })).mutation(async ({ ctx, input }) => {
       await assertClient(ctx.user.id, input.clientId);
       const { createClientPortalInvitation: createClientPortalInvitation2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
-      return await createClientPortalInvitation2(input.clientId, input.email, input.name, input.role);
+      const invitation = await createClientPortalInvitation2(input.clientId, input.email, input.name, input.role);
+      const email = await emailPortalInvite(ctx.req, input.clientId, input.email, input.name, invitation.token, invitation.expiresAt);
+      return { ...invitation, name: input.name, ...email };
+    }),
+    // Re-issue (and re-email) an invitation for a user who never set their password.
+    resendInvitation: protectedProcedure.input(z25.object({ userId: z25.number() })).mutation(async ({ ctx, input }) => {
+      await assertPortalUser(ctx.user.id, input.userId);
+      const { regenerateInvitation: regenerateInvitation2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
+      const invitation = await regenerateInvitation2(input.userId);
+      if (!invitation) {
+        throw new TRPCError11({ code: "BAD_REQUEST", message: "This user has no pending invitation" });
+      }
+      const email = await emailPortalInvite(ctx.req, invitation.clientId, invitation.email, invitation.name, invitation.token, invitation.expiresAt);
+      return { ...invitation, ...email };
     }),
     // Accept invitation (public endpoint)
-    acceptInvitation: publicProcedure.input(z25.object({
+    acceptInvitation: publicProcedure.use(limitAuth).input(z25.object({
       token: z25.string(),
       password: z25.string().min(8)
     })).mutation(async ({ input }) => {
@@ -7904,10 +8108,11 @@ You can now publish this content to the client's CMS via the Publishing page.`
       return await acceptInvitation2(input.token, input.password);
     }),
     // Login (public endpoint)
-    login: publicProcedure.input(z25.object({
+    login: publicProcedure.use(limitAuth).input(z25.object({
       email: z25.string().email(),
       password: z25.string()
     })).mutation(async ({ input }) => {
+      assertLoginAttemptAllowed("portal", input.email);
       const { loginClientPortalUser: loginClientPortalUser2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await loginClientPortalUser2(input.email, input.password);
     }),
@@ -7934,7 +8139,7 @@ You can now publish this content to the client's CMS via the Publishing page.`
       await assertClient(ctx.user.id, input.clientId);
       const client = await getClientById(input.clientId);
       const { createPortalImpersonationToken: createPortalImpersonationToken2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
-      return createPortalImpersonationToken2(input.clientId, client?.name ?? "Client");
+      return createPortalImpersonationToken2(input.clientId, client?.name ?? "Client", client?.slug ?? null);
     }),
     // --- Portal-authenticated endpoints (Bearer token; scoped to ctx.portalUser.clientId) ---
     me: portalProcedure.query(async ({ ctx }) => {
@@ -7957,22 +8162,29 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { getPortalContentById: getPortalContentById2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
       return getPortalContentById2(ctx.portalUser.clientId, input.id);
     }),
-    approve: portalProcedure.input(z25.object({ contentId: z25.number() })).mutation(async ({ ctx, input }) => {
+    approve: portalProcedure.input(z25.object({ contentId: z25.number(), comment: z25.string().max(5e3).optional() })).mutation(async ({ ctx, input }) => {
       if (ctx.portalUser.role !== "client_admin") {
-        throw new TRPCError10({ code: "FORBIDDEN", message: "Only portal admins can approve content" });
+        throw new TRPCError11({ code: "FORBIDDEN", message: "Only portal admins can approve content" });
       }
       const { portalApproveContent: portalApproveContent2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
-      const ok = await portalApproveContent2(ctx.portalUser.clientId, input.contentId);
-      if (!ok) throw new TRPCError10({ code: "NOT_FOUND", message: "Content not found" });
+      const ok = await portalApproveContent2(ctx.portalUser.clientId, ctx.portalUser, input.contentId, input.comment);
+      if (!ok) throw new TRPCError11({ code: "NOT_FOUND", message: "Content not found or not awaiting review" });
       return { success: true };
     }),
-    requestRevision: portalProcedure.input(z25.object({ contentId: z25.number(), reason: z25.string().min(1) })).mutation(async ({ ctx, input }) => {
+    requestRevision: portalProcedure.input(z25.object({ contentId: z25.number(), reason: z25.string().trim().min(1).max(5e3) })).mutation(async ({ ctx, input }) => {
       if (ctx.portalUser.role !== "client_admin") {
-        throw new TRPCError10({ code: "FORBIDDEN", message: "Only portal admins can request revisions" });
+        throw new TRPCError11({ code: "FORBIDDEN", message: "Only portal admins can request revisions" });
       }
       const { portalRequestRevision: portalRequestRevision2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
-      const ok = await portalRequestRevision2(ctx.portalUser.clientId, input.contentId);
-      if (!ok) throw new TRPCError10({ code: "NOT_FOUND", message: "Content not found" });
+      const ok = await portalRequestRevision2(ctx.portalUser.clientId, ctx.portalUser, input.contentId, input.reason);
+      if (!ok) throw new TRPCError11({ code: "NOT_FOUND", message: "Content not found or not awaiting review" });
+      return { success: true };
+    }),
+    // Agency: share a piece with the client for review, or resend it after changes.
+    sendForReview: protectedProcedure.input(z25.object({ contentId: z25.number() })).mutation(async ({ ctx, input }) => {
+      await assertContent(ctx.user.id, input.contentId);
+      const { sendContentForClientReview: sendContentForClientReview2 } = await Promise.resolve().then(() => (init_clientPortalData(), clientPortalData_exports));
+      await sendContentForClientReview2(input.contentId);
       return { success: true };
     }),
     performance: portalProcedure.query(async ({ ctx }) => {
@@ -8000,7 +8212,7 @@ You can now publish this content to the client's CMS via the Publishing page.`
         input.contentId,
         input.note
       );
-      if (!row) throw new TRPCError10({ code: "NOT_FOUND", message: "Content not found" });
+      if (!row) throw new TRPCError11({ code: "NOT_FOUND", message: "Content not found" });
       return row;
     }),
     // Agency-side read of the notes clients left on a piece of content.
@@ -8015,14 +8227,16 @@ You can now publish this content to the client's CMS via the Publishing page.`
       const { listClientPortalUsers: listClientPortalUsers2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       return await listClientPortalUsers2(input.clientId);
     }),
-    // Change password
-    changePassword: publicProcedure.input(z25.object({
-      userId: z25.number(),
+    // Change the signed-in portal user's own password. Signs out all of their sessions.
+    changePassword: portalProcedure.use(limitAuth).input(z25.object({
       oldPassword: z25.string(),
       newPassword: z25.string().min(8)
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ ctx, input }) => {
+      if (ctx.portalUser.userId === 0) {
+        throw new TRPCError11({ code: "FORBIDDEN", message: "Owner previews can't change a client's password" });
+      }
       const { changeClientPortalPassword: changeClientPortalPassword2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
-      return await changeClientPortalPassword2(input.userId, input.oldPassword, input.newPassword);
+      return await changeClientPortalPassword2(ctx.portalUser.userId, input.oldPassword, input.newPassword);
     }),
     // Deactivate user
     deactivateUser: protectedProcedure.input(z25.object({ userId: z25.number() })).mutation(async ({ ctx, input }) => {
@@ -8204,14 +8418,16 @@ async function createContext(opts) {
   try {
     const auth = opts.req.headers["authorization"];
     if (auth && auth.startsWith("Bearer ")) {
-      const { verifyClientPortalToken: verifyClientPortalToken2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
+      const { verifyClientPortalToken: verifyClientPortalToken2, isPortalSessionLive: isPortalSessionLive2 } = await Promise.resolve().then(() => (init_clientPortalAuth(), clientPortalAuth_exports));
       const decoded = verifyClientPortalToken2(auth.slice(7));
-      portalUser = {
-        userId: decoded.userId,
-        clientId: decoded.clientId,
-        email: decoded.email,
-        role: decoded.role
-      };
+      if (await isPortalSessionLive2(decoded)) {
+        portalUser = {
+          userId: decoded.userId,
+          clientId: decoded.clientId,
+          email: decoded.email,
+          role: decoded.role
+        };
+      }
     }
   } catch {
     portalUser = null;

@@ -218,7 +218,7 @@ export default function ClientPortalWhitelabel() {
                     </div>
                   )}
 
-                  <div className="flex gap-3 mt-6">
+                  <div className="flex flex-wrap gap-3 mt-6">
                     {content.status !== "approved" && (
                       <>
                         <Button

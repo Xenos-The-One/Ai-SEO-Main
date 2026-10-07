@@ -126,9 +126,9 @@ export default function Approvals() {
           <div className="space-y-4">
             {pendingApprovals.map((content) => (
               <Card key={content.id} className="p-6 border-l-4 border-l-yellow-500">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex flex-wrap items-center gap-3 mb-2">
                       <h3 className="text-lg font-semibold">{content.title}</h3>
                       <Badge variant="outline" className="bg-yellow-500/10 text-yellow-700 border-yellow-500">
                         Pending Approval
@@ -146,7 +146,7 @@ export default function Approvals() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2 ml-4">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"
                       size="sm"

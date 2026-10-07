@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { setPortalSession } from "@/lib/portalSession";
@@ -25,6 +25,7 @@ export default function PortalLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const loginMutation = trpc.clientPortal.login.useMutation({
     onSuccess: (data) => {
@@ -32,8 +33,8 @@ export default function PortalLogin() {
       setPortalSession(data.token, data.user);
       setLocation("/portal/dashboard");
     },
-    onError: (error) => {
-      alert(`Login failed: ${error.message}`);
+    onError: (err) => {
+      setError(err.message || "Sign-in failed. Please try again.");
       setIsLoading(false);
     },
   });
@@ -41,12 +42,17 @@ export default function PortalLogin() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
     loginMutation.mutate({ email, password });
   };
 
   const primaryColor = branding?.primaryColor || undefined;
   const heading = branding?.portalName || branding?.clientName || "Client Portal";
   const subheading = branding?.welcomeMessage || "Sign in to view your content and reports";
+
+  useEffect(() => {
+    document.title = `Sign in · ${heading}`;
+  }, [heading]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted p-4">
@@ -99,6 +105,12 @@ export default function PortalLogin() {
             />
           </div>
 
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
           <Button
             type="submit"
             className="w-full"
@@ -110,8 +122,10 @@ export default function PortalLogin() {
         </form>
 
         <div className="mt-6 text-center text-sm text-muted-foreground">
-          <p>Don't have an account?</p>
-          <p className="mt-1">Contact your account manager for an invitation.</p>
+          <p>Invited but haven't set a password yet?</p>
+          <p className="mt-1">
+            Use the link in your invitation email. If it has expired, ask your account manager to resend it.
+          </p>
         </div>
       </Card>
     </div>

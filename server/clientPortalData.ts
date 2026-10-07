@@ -3,7 +3,7 @@
  * endpoints, so `clientId` comes from a signed client-portal token and is authoritative —
  * these functions never trust a clientId supplied by the caller directly.
  */
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   aiBrands,
@@ -83,21 +83,47 @@ export async function getPortalBranding(clientId: number) {
   return row ?? null;
 }
 
+/**
+ * The only content columns a client may see. Internal generation details (model, prompts,
+ * token counts, author) stay agency-side.
+ */
+const portalContentColumns = {
+  id: contentTable.id,
+  clientId: contentTable.clientId,
+  title: contentTable.title,
+  topic: contentTable.topic,
+  content: contentTable.content,
+  imageUrl: contentTable.imageUrl,
+  contentType: contentTable.contentType,
+  clientReview: contentTable.clientReview,
+  scheduledPublishDate: contentTable.scheduledPublishDate,
+  publishedUrl: contentTable.publishedUrl,
+  wordCount: contentTable.wordCount,
+  approvedAt: contentTable.approvedAt,
+  createdAt: contentTable.createdAt,
+  updatedAt: contentTable.updatedAt,
+};
+
+/** Content the agency has shared with the client (unshared drafts are never visible). */
+function sharedWithClient(clientId: number) {
+  return and(eq(contentTable.clientId, clientId), isNotNull(contentTable.clientReview));
+}
+
 export async function getPortalContentList(clientId: number) {
   const d = await db();
   return d
-    .select()
+    .select(portalContentColumns)
     .from(contentTable)
-    .where(eq(contentTable.clientId, clientId))
+    .where(sharedWithClient(clientId))
     .orderBy(desc(contentTable.createdAt));
 }
 
 export async function getPortalContentById(clientId: number, id: number) {
   const d = await db();
   const [row] = await d
-    .select()
+    .select(portalContentColumns)
     .from(contentTable)
-    .where(and(eq(contentTable.id, id), eq(contentTable.clientId, clientId)))
+    .where(and(eq(contentTable.id, id), sharedWithClient(clientId)))
     .limit(1);
   return row ?? null;
 }
@@ -106,39 +132,65 @@ export async function getPortalStats(clientId: number) {
   const rows = await getPortalContentList(clientId);
   return {
     totalContent: rows.length,
-    pendingApproval: rows.filter((r) => r.status !== "approved").length,
-    approved: rows.filter((r) => r.status === "approved").length,
+    pendingApproval: rows.filter((r) => r.clientReview === "pending").length,
+    approved: rows.filter((r) => r.clientReview === "approved").length,
     recent: rows.slice(0, 5).map((r) => ({
       id: r.id,
       title: r.title,
-      status: r.status,
+      clientReview: r.clientReview,
       createdAt: r.createdAt,
     })),
   };
 }
 
-/** Approve content on the client's behalf. Scoped by clientId; returns false if not theirs. */
-export async function portalApproveContent(clientId: number, contentId: number) {
+type PortalActor = { userId: number; email: string };
+
+/**
+ * Approve content awaiting the client's review. Scoped by clientId; returns false if the
+ * piece isn't theirs or isn't awaiting review. An optional comment is kept as feedback.
+ */
+export async function portalApproveContent(
+  clientId: number,
+  actor: PortalActor,
+  contentId: number,
+  comment?: string
+) {
   const d = await db();
   const existing = await getPortalContentById(clientId, contentId);
-  if (!existing) return false;
+  if (!existing || existing.clientReview !== "pending") return false;
   await d
     .update(contentTable)
-    .set({ status: "approved", wasApproved: 1, approvedAt: new Date(), progress: 100 })
+    .set({ status: "approved", clientReview: "approved", wasApproved: 1, approvedAt: new Date(), progress: 100 })
     .where(and(eq(contentTable.id, contentId), eq(contentTable.clientId, clientId)));
+  await insertFeedback(clientId, actor, contentId, comment?.trim() || "Approved", "approval");
   return true;
 }
 
-/** Send content back for revision (flip to in_progress). Scoped by clientId. */
-export async function portalRequestRevision(clientId: number, contentId: number) {
+/**
+ * Send content back for changes. The client's reason is stored as feedback so the agency
+ * sees what to fix; the piece leaves the client's review queue until the agency resends it.
+ */
+export async function portalRequestRevision(
+  clientId: number,
+  actor: PortalActor,
+  contentId: number,
+  reason: string
+) {
   const d = await db();
   const existing = await getPortalContentById(clientId, contentId);
-  if (!existing) return false;
+  if (!existing || existing.clientReview !== "pending") return false;
   await d
     .update(contentTable)
-    .set({ status: "in_progress", wasApproved: 0, approvedAt: null })
+    .set({ status: "in_progress", clientReview: "changes_requested", wasApproved: 0, approvedAt: null })
     .where(and(eq(contentTable.id, contentId), eq(contentTable.clientId, clientId)));
+  await insertFeedback(clientId, actor, contentId, reason, "revision_request");
   return true;
+}
+
+/** Agency side: share a piece with the client for review (or resend it after changes). */
+export async function sendContentForClientReview(contentId: number) {
+  const d = await db();
+  await d.update(contentTable).set({ clientReview: "pending" }).where(eq(contentTable.id, contentId));
 }
 
 /** List a client's feedback notes on a piece of content (newest first). Scoped by clientId. */
@@ -171,17 +223,27 @@ export async function addPortalFeedback(
   contentId: number,
   note: string
 ) {
-  const d = await db();
   const owned = await getPortalContentById(clientId, contentId);
   if (!owned) return null;
+  return insertFeedback(clientId, { userId, email }, contentId, note, "note");
+}
+
+async function insertFeedback(
+  clientId: number,
+  actor: PortalActor,
+  contentId: number,
+  note: string,
+  kind: "note" | "revision_request" | "approval"
+) {
+  const d = await db();
 
   // Resolve a display name from the portal user row when it's a real account.
   let authorName = "Client";
-  if (userId > 0) {
+  if (actor.userId > 0) {
     const [u] = await d
       .select({ name: clientPortalUsers.name })
       .from(clientPortalUsers)
-      .where(eq(clientPortalUsers.id, userId))
+      .where(eq(clientPortalUsers.id, actor.userId))
       .limit(1);
     if (u?.name) authorName = u.name;
   } else {
@@ -190,7 +252,7 @@ export async function addPortalFeedback(
 
   const [row] = await d
     .insert(portalFeedback)
-    .values({ contentId, clientId, authorName, authorEmail: email, note })
+    .values({ contentId, clientId, authorName, authorEmail: actor.email, note, kind })
     .returning();
   return row;
 }
@@ -234,7 +296,7 @@ export async function getPortalContentAnalytics(clientId: number) {
       createdAt: contentTable.createdAt,
     })
     .from(contentTable)
-    .where(eq(contentTable.clientId, clientId));
+    .where(sharedWithClient(clientId));
 
   const empty = {
     hasData: false,
@@ -388,7 +450,8 @@ export async function getPortalServicePlan(clientId: number) {
   }
   if (!items.length) return { hasPlan: false, monthLabel: currentMonthLabel(), items: [] as ServicePlanItem[] };
 
-  // Count content produced this calendar month, by type, for content-sourced quota items.
+  // Count content delivered this calendar month, by type, for content-sourced quota items.
+  // Delivered = approved by the client; drafts and pieces sent back for changes don't count.
   const counts = new Map<string, number>();
   const needsContentCounts = items.some(
     (i) => i.type === "quota" && typeof i.source === "string" && i.source.startsWith("content:")
@@ -397,7 +460,16 @@ export async function getPortalServicePlan(clientId: number) {
     const rows = await d
       .select({ type: contentTable.contentType, n: sql<number>`count(*)` })
       .from(contentTable)
-      .where(and(eq(contentTable.clientId, clientId), gte(contentTable.createdAt, startOfCurrentMonth())))
+      .where(
+        and(
+          eq(contentTable.clientId, clientId),
+          eq(contentTable.clientReview, "approved"),
+          or(
+            gte(contentTable.approvedAt, startOfCurrentMonth()),
+            and(isNull(contentTable.approvedAt), gte(contentTable.createdAt, startOfCurrentMonth()))
+          )
+        )
+      )
       .groupBy(contentTable.contentType);
     for (const r of rows) counts.set(r.type, Number(r.n));
   }

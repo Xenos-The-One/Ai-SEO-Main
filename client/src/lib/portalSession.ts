@@ -1,17 +1,20 @@
 /**
  * Client-portal session storage.
  *
- * Uses `sessionStorage` (scoped to a single browser tab) rather than `localStorage`
- * (shared across every tab on the origin) so the agency owner can preview several
- * clients' portals in different tabs at once without one clobbering another.
+ * Real client logins persist in `localStorage` so the session survives closing the tab,
+ * opening links in new tabs, and clicking links from emails.
  *
- * The preview flow ("Open Portal") opens a new tab and hands it the session through
- * the URL hash — see `bootstrapPortalSessionFromUrl` — because a freshly opened tab
- * starts with its own empty sessionStorage.
+ * Agency owner previews ("Open Portal") live in `sessionStorage` (scoped to one tab) so
+ * the owner can preview several clients side by side without clobbering each other or a
+ * real login. The preview tab receives its session through the URL hash — see
+ * `bootstrapPortalSessionFromUrl` — because a freshly opened tab starts with empty
+ * sessionStorage. A tab-scoped preview session always takes precedence.
  */
 
 const TOKEN_KEY = "client_portal_token";
 const USER_KEY = "client_portal_user";
+/** The client's branded login slug, kept after logout so we can send them back to it. */
+const SLUG_KEY = "client_portal_slug";
 
 export type PortalUser = {
   id: number;
@@ -19,22 +22,31 @@ export type PortalUser = {
   email: string;
   name: string;
   role: string;
+  slug?: string | null;
 };
 
-export function getPortalToken(): string | null {
+function read(key: string): string | null {
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(key) ?? localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-export function getPortalUserRaw(): string | null {
+function isPreviewTab(): boolean {
   try {
-    return sessionStorage.getItem(USER_KEY);
+    return !!sessionStorage.getItem(TOKEN_KEY);
   } catch {
-    return null;
+    return false;
   }
+}
+
+export function getPortalToken(): string | null {
+  return read(TOKEN_KEY);
+}
+
+export function getPortalUserRaw(): string | null {
+  return read(USER_KEY);
 }
 
 export function getPortalUser(): PortalUser | null {
@@ -47,18 +59,33 @@ export function getPortalUser(): PortalUser | null {
   }
 }
 
-export function setPortalSession(token: string, user: unknown): void {
+/** Store a real client login (persists across tabs and browser restarts). */
+export function setPortalSession(token: string, user: PortalUser): void {
   try {
-    sessionStorage.setItem(TOKEN_KEY, token);
-    sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    if (user.slug) localStorage.setItem(SLUG_KEY, user.slug);
   } catch {}
 }
 
+/** Clear this tab's session: the preview session if one is active, else the real login. */
 export function clearPortalSession(): void {
   try {
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(USER_KEY);
+    const store = isPreviewTab() ? sessionStorage : localStorage;
+    store.removeItem(TOKEN_KEY);
+    store.removeItem(USER_KEY);
   } catch {}
+}
+
+/** Where to send a signed-out user: their branded login page when we know it. */
+export function portalLoginPath(): string {
+  let slug = getPortalUser()?.slug ?? null;
+  if (!slug) {
+    try {
+      slug = localStorage.getItem(SLUG_KEY);
+    } catch {}
+  }
+  return slug ? `/portal/${encodeURIComponent(slug)}` : "/portal/login";
 }
 
 /** Build the URL hash used to hand a portal session to a newly opened tab. */
@@ -68,41 +95,24 @@ export function buildPortalSessionHash(token: string, user: unknown): string {
 }
 
 /**
- * Seed this tab's portal session from a `#pt=…&pu=…` URL hash (used by the preview
- * flow) or, one-time, migrate a legacy `localStorage` session left by an older build.
- * Strips the hash afterwards so the token never lingers in the address bar. Safe to
- * call on every load; a no-op when there is nothing to import.
+ * Seed this tab's preview session from a `#pt=…&pu=…` URL hash (used by "Open Portal"),
+ * then strip the hash so the token never lingers in the address bar. Safe to call on
+ * every load; a no-op when there is nothing to import.
  */
 export function bootstrapPortalSessionFromUrl(): void {
   try {
     const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
-    if (hash) {
-      const params = new URLSearchParams(hash);
-      const token = params.get("pt");
-      const user = params.get("pu");
-      if (token && user) {
-        sessionStorage.setItem(TOKEN_KEY, token);
-        sessionStorage.setItem(USER_KEY, user);
-        params.delete("pt");
-        params.delete("pu");
-        const rest = params.toString();
-        const newUrl = window.location.pathname + window.location.search + (rest ? `#${rest}` : "");
-        window.history.replaceState(null, "", newUrl);
-        return;
-      }
-    }
-
-    // One-time migration from the old shared-localStorage sessions.
-    if (!sessionStorage.getItem(TOKEN_KEY)) {
-      const legacyToken = localStorage.getItem(TOKEN_KEY);
-      const legacyUser = localStorage.getItem(USER_KEY);
-      if (legacyToken && legacyUser) {
-        sessionStorage.setItem(TOKEN_KEY, legacyToken);
-        sessionStorage.setItem(USER_KEY, legacyUser);
-      }
-      // Drop the shared copy either way so future tabs stay isolated.
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-    }
+    if (!hash) return;
+    const params = new URLSearchParams(hash);
+    const token = params.get("pt");
+    const user = params.get("pu");
+    if (!token || !user) return;
+    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(USER_KEY, user);
+    params.delete("pt");
+    params.delete("pu");
+    const rest = params.toString();
+    const newUrl = window.location.pathname + window.location.search + (rest ? `#${rest}` : "");
+    window.history.replaceState(null, "", newUrl);
   } catch {}
 }

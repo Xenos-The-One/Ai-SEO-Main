@@ -6,7 +6,11 @@
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>AI SEO Content Portal</title>    
+    <title>AI SEO Content Portal</title>
+    <!-- Client portals are white-labeled: never flash the platform name in their tab. -->
+    <script>
+      if (location.pathname.startsWith("/portal")) document.title = "Client Portal";
+    </script>
     <!-- THIS IS THE START OF A COMMENT BLOCK, BLOCK TO BE DELETED: Google Fonts here, example:
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

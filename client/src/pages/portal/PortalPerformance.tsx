@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { getPortalToken, getPortalUserRaw, clearPortalSession } from "@/lib/portalSession";
+import { PortalShell, PortalError } from "@/components/portal/PortalShell";
+import { getPortalToken, getPortalUserRaw, portalLoginPath, clearPortalSession } from "@/lib/portalSession";
 import {
   Bot,
   Sparkles,
@@ -92,13 +93,13 @@ export default function PortalPerformance() {
     const token = getPortalToken();
     const userData = getPortalUserRaw();
     if (!token || !userData) {
-      setLocation("/portal/login");
+      setLocation(portalLoginPath());
       return;
     }
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data, isLoading } = trpc.clientPortal.performance.useQuery(undefined, { enabled: !!user });
+  const { data, isLoading, error, refetch } = trpc.clientPortal.performance.useQuery(undefined, { enabled: !!user });
   const { data: contentPerf } = trpc.clientPortal.contentAnalytics.useQuery(undefined, { enabled: !!user });
   const { data: plan } = trpc.clientPortal.servicePlan.useQuery(undefined, { enabled: !!user });
 
@@ -106,7 +107,15 @@ export default function PortalPerformance() {
     return <div className="min-h-screen flex items-center justify-center text-muted-foreground animate-pulse">Loading…</div>;
   }
 
-  const perf = data!;
+  if (error || !data) {
+    return (
+      <PortalShell title="Performance">
+        <PortalError onRetry={() => refetch()} />
+      </PortalShell>
+    );
+  }
+
+  const perf = data;
   const engines = perf.engines || [];
   const rankLabel = (n: number | null) => (n == null ? "—" : `#${n}`);
   const onboarded = perf.profile.onboardedAt
@@ -114,21 +123,8 @@ export default function PortalPerformance() {
     : "—";
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      {/* Header bar */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Performance Dashboard</h1>
-            <p className="text-sm text-muted-foreground">AI visibility &amp; search rankings</p>
-          </div>
-          <Link href="/portal/dashboard">
-            <Button variant="outline">Back to Dashboard</Button>
-          </Link>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-6 space-y-6">
+    <PortalShell title="Performance" subtitle="Search rankings and AI visibility">
+      <div className="space-y-6">
         {/* Business profile + visibility score */}
         <Card>
           <CardContent className="pt-6">
@@ -181,10 +177,10 @@ export default function PortalPerformance() {
           <Card className="border-dashed">
             <CardContent className="pt-6 text-center py-10 text-muted-foreground">
               <Bot className="h-10 w-10 mx-auto mb-3 opacity-50" />
-              <p className="font-medium text-foreground">No AI visibility data yet</p>
+              <p className="font-medium text-foreground">AI visibility tracking is being set up</p>
               <p className="text-sm mt-1">
-                Set up AI Visibility tracking for this client's domain in the agency dashboard, then run a scan.
-                Results will appear here automatically.
+                We'll check how AI assistants like ChatGPT and Gemini mention your business, and the
+                results will appear here after the first scan.
               </p>
             </CardContent>
           </Card>
@@ -500,7 +496,7 @@ export default function PortalPerformance() {
             {!perf.hasKeywordData ? (
               <div className="text-center py-8 text-muted-foreground">
                 <p>No tracked keywords yet</p>
-                <p className="text-sm mt-1">Add keywords in Rank Tracking to see positions here.</p>
+                <p className="text-sm mt-1">Your Google rankings for target keywords will appear here once tracking starts.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -560,8 +556,8 @@ export default function PortalPerformance() {
                 <FileText className="h-10 w-10 mx-auto mb-3 opacity-50" />
                 <p className="font-medium text-foreground">No content performance data yet</p>
                 <p className="text-sm mt-1">
-                  Views and engagement appear here once analytics are recorded for this client's content
-                  (via the Google Analytics connection or tracked publishing).
+                  Views and engagement for your published content will appear here once traffic data
+                  starts coming in.
                 </p>
               </CardContent>
             </Card>
@@ -718,8 +714,8 @@ export default function PortalPerformance() {
             {engines.length > 0 && ` Rankings are verified across ${engines.map((e) => e.label).join(", ")}.`}
           </span>
         </div>
-      </main>
-    </div>
+      </div>
+    </PortalShell>
   );
 }
 

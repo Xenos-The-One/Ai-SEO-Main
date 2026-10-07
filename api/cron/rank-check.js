@@ -91,6 +91,8 @@ var init_schema = __esm({
       role: text("role", { enum: ["client_admin", "client_viewer"] }).default("client_viewer").notNull(),
       isActive: integer("isActive").default(1).notNull(),
       // 0 = inactive, 1 = active
+      /** Bumped to revoke all outstanding portal tokens (deactivation, password change). */
+      tokenVersion: integer("tokenVersion").default(0).notNull(),
       invitationToken: varchar("invitationToken", { length: 255 }),
       invitationExpiry: timestamp("invitationExpiry"),
       lastLoginAt: timestamp("lastLoginAt"),
@@ -117,6 +119,7 @@ var init_schema = __esm({
       authorName: varchar("authorName", { length: 255 }),
       authorEmail: varchar("authorEmail", { length: 320 }),
       note: text("note").notNull(),
+      kind: varchar("kind", { length: 32, enum: ["note", "revision_request", "approval"] }).default("note").notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull()
     });
     content = pgTable("content", {
@@ -133,6 +136,8 @@ var init_schema = __esm({
       // live URL, used to match Google Analytics page paths
       // Status and workflow
       status: text("status", { enum: ["draft", "in_progress", "approved"] }).default("draft").notNull(),
+      // Client-portal review state. NULL = not shared with the client yet (hidden from the portal).
+      clientReview: varchar("clientReview", { length: 32, enum: ["pending", "changes_requested", "approved"] }),
       progress: integer("progress").default(0).notNull(),
       // 0-100
       contentType: varchar("contentType", { length: 32 }).default("blog").notNull(),
@@ -575,6 +580,8 @@ var init_env = __esm({
       zernioApiKey: clean(process.env.ZERNIO_API_KEY),
       resendApiKey: clean(process.env.RESEND_API_KEY),
       newsletterFrom: process.env.NEWSLETTER_FROM ?? "onboarding@resend.dev",
+      // Sender for client-portal invitation emails; falls back to the newsletter sender.
+      portalInviteFrom: process.env.PORTAL_INVITE_FROM || process.env.NEWSLETTER_FROM || "onboarding@resend.dev",
       openaiApiKey: clean(process.env.OPENAI_API_KEY),
       perplexityApiKey: clean(process.env.PERPLEXITY_API_KEY),
       // Run the weekly rank-tracking cron in this process. On by default in production;
@@ -704,7 +711,8 @@ async function checkKeywordRank(keyword, domain, opts = {}) {
       keyword,
       location_name: opts.locationName ?? "United States",
       language_name: opts.languageName ?? "English",
-      device: opts.device ?? "desktop"
+      device: opts.device ?? "desktop",
+      depth: opts.depth ?? 100
     }
   ]);
   const items = json?.tasks?.[0]?.result?.[0]?.items ?? [];
@@ -713,7 +721,7 @@ async function checkKeywordRank(keyword, domain, opts = {}) {
     const itemDomain = normalizeDomain(item?.domain ?? item?.url ?? "");
     if (itemDomain === target) {
       return {
-        position: item?.rank_absolute ?? null,
+        position: item?.rank_group ?? item?.rank_absolute ?? null,
         url: item?.url ?? null
       };
     }

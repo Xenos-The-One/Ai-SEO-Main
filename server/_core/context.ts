@@ -59,14 +59,17 @@ export async function createContext(
   try {
     const auth = opts.req.headers["authorization"];
     if (auth && auth.startsWith("Bearer ")) {
-      const { verifyClientPortalToken } = await import("../clientPortalAuth");
+      const { verifyClientPortalToken, isPortalSessionLive } = await import("../clientPortalAuth");
       const decoded = verifyClientPortalToken(auth.slice(7));
-      portalUser = {
-        userId: decoded.userId,
-        clientId: decoded.clientId,
-        email: decoded.email,
-        role: decoded.role,
-      };
+      // A valid signature isn't enough: deactivated users and revoked tokens are rejected.
+      if (await isPortalSessionLive(decoded)) {
+        portalUser = {
+          userId: decoded.userId,
+          clientId: decoded.clientId,
+          email: decoded.email,
+          role: decoded.role,
+        };
+      }
     }
   } catch {
     portalUser = null;

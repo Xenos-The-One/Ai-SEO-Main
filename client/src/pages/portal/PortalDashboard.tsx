@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Calendar, TrendingUp, LogOut, User } from "lucide-react";
+import { FileText, Clock, CheckCircle, TrendingUp, ArrowRight } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { getPortalToken, getPortalUserRaw, clearPortalSession } from "@/lib/portalSession";
+import { clientReviewLabel } from "@/lib/portalReview";
+import { getPortalToken, getPortalUserRaw, portalLoginPath } from "@/lib/portalSession";
+import { PortalShell, PortalError } from "@/components/portal/PortalShell";
 
 export default function PortalDashboard() {
   const [, setLocation] = useLocation();
@@ -16,20 +18,14 @@ export default function PortalDashboard() {
     const userData = getPortalUserRaw();
 
     if (!token || !userData) {
-      setLocation("/portal/login");
+      setLocation(portalLoginPath());
       return;
     }
 
     setUser(JSON.parse(userData));
   }, [setLocation]);
 
-  const { data: branding } = trpc.clientPortal.branding.useQuery(undefined, { enabled: !!user });
-  const { data: stats } = trpc.clientPortal.stats.useQuery(undefined, { enabled: !!user });
-
-  const handleLogout = () => {
-    clearPortalSession();
-    setLocation("/portal/login");
-  };
+  const { data: stats, isLoading, error, refetch } = trpc.clientPortal.stats.useQuery(undefined, { enabled: !!user });
 
   if (!user) {
     return (
@@ -39,141 +35,92 @@ export default function PortalDashboard() {
     );
   }
 
+  const firstName = String(user.name || "").split(/[\s(]/)[0];
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card" style={branding?.primaryColor ? { borderColor: branding.primaryColor } : {}}>
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {branding?.logoUrl && (
-              <img src={branding.logoUrl} alt="Logo" className="h-10 object-contain" />
-            )}
-            <div>
-              <h1 className="text-2xl font-bold" style={branding?.primaryColor ? { color: branding.primaryColor } : {}}>
-                {branding?.portalName || "Client Portal"}
-              </h1>
-              <p className="text-sm text-muted-foreground">Welcome back, {user.name}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm font-medium">{user.name}</p>
-              <p className="text-xs text-muted-foreground">{user.role === "client_admin" ? "Admin" : "Viewer"}</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Logout
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* Quick Stats */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Content</p>
-                <p className="text-3xl font-bold mt-2">{stats?.totalContent ?? 0}</p>
-              </div>
-              <FileText className="h-12 w-12 text-blue-500" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Pending Approval</p>
-                <p className="text-3xl font-bold mt-2">{stats?.pendingApproval ?? 0}</p>
-              </div>
-              <Calendar className="h-12 w-12 text-orange-500" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Approved</p>
-                <p className="text-3xl font-bold mt-2">{stats?.approved ?? 0}</p>
-              </div>
-              <TrendingUp className="h-12 w-12 text-green-500" />
-            </div>
-          </Card>
-        </div>
-
-        {/* Navigation Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Link href="/portal/content">
-            <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
-              <FileText className="h-12 w-12 text-primary mb-4" />
-              <h3 className="text-xl font-semibold mb-2">My Content</h3>
-              <p className="text-muted-foreground">
-                View all your content, drafts, and published posts
-              </p>
-            </Card>
-          </Link>
-
-          <Link href="/portal/calendar">
-            <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
-              <Calendar className="h-12 w-12 text-primary mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Content Calendar</h3>
-              <p className="text-muted-foreground">
-                See your content schedule and upcoming posts
-              </p>
-            </Card>
-          </Link>
-
+    <PortalShell title="Dashboard" subtitle={firstName ? `Welcome back, ${firstName}` : undefined}>
+      {error ? (
+        <PortalError onRetry={() => refetch()} />
+      ) : isLoading ? (
+        <div className="text-center py-12 text-muted-foreground animate-pulse">Loading…</div>
+      ) : stats && stats.totalContent === 0 ? (
+        <Card className="p-10 text-center">
+          <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-60" />
+          <h3 className="text-lg font-semibold mb-2">Your first content is on the way</h3>
+          <p className="text-muted-foreground max-w-md mx-auto">
+            When our team has a piece ready for you, it will appear here for your review. In the
+            meantime, you can follow your search and AI visibility results.
+          </p>
           <Link href="/portal/performance">
-            <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
-              <TrendingUp className="h-12 w-12 text-primary mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Performance</h3>
-              <p className="text-muted-foreground">
-                Track views, engagement, and content performance
-              </p>
-            </Card>
+            <Button className="mt-6">
+              View performance <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
           </Link>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <StatCard label="Total Content" value={stats?.totalContent ?? 0} icon={<FileText className="h-10 w-10 text-blue-500" />} />
+            <StatCard label="Awaiting Your Review" value={stats?.pendingApproval ?? 0} icon={<Clock className="h-10 w-10 text-orange-500" />} />
+            <StatCard label="Approved" value={stats?.approved ?? 0} icon={<CheckCircle className="h-10 w-10 text-green-500" />} />
+          </div>
 
-          <Link href="/portal/approvals">
-            <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
-              <User className="h-12 w-12 text-primary mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Approvals</h3>
-              <p className="text-muted-foreground">
-                Review and approve content awaiting your feedback
-              </p>
+          {(stats?.pendingApproval ?? 0) > 0 && (
+            <Card className="p-6 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-orange-500/40">
+              <div>
+                <h3 className="font-semibold">
+                  {stats!.pendingApproval === 1 ? "1 piece is" : `${stats!.pendingApproval} pieces are`} waiting for your review
+                </h3>
+                <p className="text-sm text-muted-foreground">Approve them or tell us what to change.</p>
+              </div>
+              <Link href="/portal/approvals">
+                <Button>
+                  Review now <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </Link>
             </Card>
-          </Link>
-        </div>
+          )}
 
-        {/* Recent Activity */}
-        <Card className="p-6 mt-8">
-          <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
-          {!stats?.recent || stats.recent.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p>No recent activity</p>
-              <p className="text-sm mt-2">Activity will appear here as content is created and updated</p>
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Recent Activity</h3>
+              <Link href="/portal/performance" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
+                <TrendingUp className="h-4 w-4" /> Performance
+              </Link>
             </div>
-          ) : (
             <div className="divide-y">
-              {stats.recent.map((item) => (
+              {stats?.recent.map((item) => (
                 <Link key={item.id} href={`/portal/content/${item.id}`}>
-                  <div className="flex items-center justify-between py-3 cursor-pointer hover:opacity-80">
-                    <div className="flex items-center gap-3">
-                      <FileText className="h-5 w-5 text-muted-foreground" />
-                      <span className="font-medium">{item.title}</span>
+                  <div className="flex items-center justify-between gap-3 py-3 cursor-pointer hover:opacity-80">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                      <span className="font-medium truncate">{item.title}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                      <span className="capitalize">{item.status.replace("_", " ")}</span>
-                      <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                    <div className="flex items-center gap-3 shrink-0 text-sm text-muted-foreground">
+                      <span>{clientReviewLabel(item.clientReview)}</span>
+                      <span className="hidden sm:inline">{new Date(item.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
                 </Link>
               ))}
             </div>
-          )}
-        </Card>
-      </main>
-    </div>
+          </Card>
+        </>
+      )}
+    </PortalShell>
+  );
+}
+
+function StatCard({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          <p className="text-3xl font-bold mt-2">{value}</p>
+        </div>
+        {icon}
+      </div>
+    </Card>
   );
 }

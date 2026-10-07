@@ -192,14 +192,14 @@ export default function Scheduling() {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Content Calendar</h1>
           <p className="text-muted-foreground mt-1">
             Drag and drop content to schedule publication dates
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex bg-muted rounded-lg p-0.5">
             <Button
               variant={viewMode === "month" ? "default" : "ghost"}

@@ -4,7 +4,9 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { getPortalToken, getPortalUserRaw } from "@/lib/portalSession";
+import { PortalShell, PortalError } from "@/components/portal/PortalShell";
+import { clientReviewLabel } from "@/lib/portalReview";
+import { getPortalToken, getPortalUserRaw, portalLoginPath } from "@/lib/portalSession";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 
 export default function PortalCalendar() {
@@ -18,7 +20,7 @@ export default function PortalCalendar() {
     const userData = getPortalUserRaw();
     
     if (!token || !userData) {
-      setLocation("/portal/login");
+      setLocation(portalLoginPath());
       return;
     }
     
@@ -27,7 +29,7 @@ export default function PortalCalendar() {
 
   // Portal-scoped content (token-authenticated); the agency content.list endpoint isn't
   // available to a client login, so use the portal endpoint.
-  const { data: contentList } = trpc.clientPortal.myContent.useQuery(
+  const { data: contentList, error, refetch } = trpc.clientPortal.myContent.useQuery(
     undefined,
     { enabled: !!user }
   );
@@ -72,16 +74,14 @@ export default function PortalCalendar() {
     });
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  const getStatusColor = (state: string | null) => {
+    switch (state) {
       case "approved":
         return "bg-green-500/20 text-green-500 border-green-500/50";
-      case "draft":
-        return "bg-yellow-500/20 text-yellow-500 border-yellow-500/50";
-      case "published":
-        return "bg-blue-500/20 text-blue-500 border-blue-500/50";
-      case "in_progress":
+      case "pending":
         return "bg-orange-500/20 text-orange-500 border-orange-500/50";
+      case "changes_requested":
+        return "bg-blue-500/20 text-blue-500 border-blue-500/50";
       default:
         return "bg-muted text-muted-foreground border-muted";
     }
@@ -97,24 +97,8 @@ export default function PortalCalendar() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Content Calendar</h1>
-              <p className="text-sm text-muted-foreground">View your scheduled content</p>
-            </div>
-            <Link href="/portal/dashboard">
-              <Button variant="outline">Back to Dashboard</Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+    <PortalShell title="Calendar" subtitle="When your content is scheduled">
+        {error && <div className="mb-6"><PortalError onRetry={() => refetch()} /></div>}
         {/* Calendar Controls */}
         <Card className="p-6 mb-6">
           <div className="flex items-center justify-between">
@@ -185,7 +169,7 @@ export default function PortalCalendar() {
                       <Link key={item.id} href={`/portal/content/${item.id}`}>
                         <div
                           className={`text-xs p-1 rounded border cursor-pointer hover:opacity-80 transition-opacity truncate ${getStatusColor(
-                            item.status
+                            item.clientReview
                           )}`}
                           title={item.title}
                         >
@@ -236,8 +220,8 @@ export default function PortalCalendar() {
                           })}
                         </p>
                       </div>
-                      <Badge className={getStatusColor(item.status)}>
-                        {item.status.replace("_", " ")}
+                      <Badge className={getStatusColor(item.clientReview)}>
+                        {clientReviewLabel(item.clientReview)}
                       </Badge>
                     </div>
                   </Link>
@@ -245,7 +229,6 @@ export default function PortalCalendar() {
             </div>
           )}
         </Card>
-      </main>
-    </div>
+    </PortalShell>
   );
 }
