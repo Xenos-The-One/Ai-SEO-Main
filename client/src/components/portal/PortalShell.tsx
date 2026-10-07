@@ -1,8 +1,9 @@
 import { ReactNode, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { AlertTriangle, LogOut } from "lucide-react";
+import { AlertTriangle, LogOut, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import { clearPortalSession, getPortalUser, portalLoginPath } from "@/lib/portalSession";
 
@@ -33,6 +34,7 @@ export function PortalShell({
   children: ReactNode;
 }) {
   const [location, setLocation] = useLocation();
+  const { theme, toggleTheme } = useTheme();
   const user = getPortalUser();
   const { data: branding } = trpc.clientPortal.branding.useQuery(undefined, { enabled: !!user });
   const { data: me } = trpc.clientPortal.me.useQuery(undefined, { enabled: !!user });
@@ -67,6 +69,17 @@ export function PortalShell({
                   <p className="text-sm font-medium leading-tight">{user.name}</p>
                   <p className="text-xs text-muted-foreground">{user.role === "client_admin" ? "Admin" : "Viewer"}</p>
                 </div>
+              )}
+              {toggleTheme && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleTheme}
+                  aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  title={theme === "dark" ? "Light mode" : "Dark mode"}
+                >
+                  {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </Button>
               )}
               <Button variant="outline" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 sm:mr-2" />
